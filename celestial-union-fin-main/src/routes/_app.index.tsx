@@ -7,12 +7,6 @@ import { CashflowChart } from "@/components/CashflowChart";
 import { useStore, formatBRL } from "@/lib/store";
 
 export const Route = createFileRoute("/_app/")({
-  head: () => ({
-    meta: [
-      { title: "Dashboard — Gestor Financeiro do Casal" },
-      { name: "description", content: "Visão consolidada das finanças do casal com análise de IA em tempo real." },
-    ],
-  }),
   component: Dashboard,
 });
 
