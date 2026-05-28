@@ -1,7 +1,8 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
-import { Sparkles, ArrowRight, Loader2, Chrome } from "lucide-react";
-import { signInWithGoogle, joinCoupleByCode } from "@/lib/firebase";
+import { useEffect, useState } from "react";
+import { Sparkles, ArrowRight, Loader2 } from "lucide-react";
+import { signInWithGoogle } from "@/lib/supabase";
+import { useStore } from "@/lib/store";
 
 export const Route = createFileRoute("/login")({
   head: () => ({
@@ -15,53 +16,45 @@ export const Route = createFileRoute("/login")({
 
 function LoginPage() {
   const navigate = useNavigate();
+  const { state } = useStore();
   const [mode, setMode] = useState<"login" | "join">("login");
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Se já está autenticado, vai para o dashboard
+  useEffect(() => {
+    if (state.authState === "authenticated") {
+      navigate({ to: "/" });
+    }
+  }, [state.authState, navigate]);
+
   /**
-   * Handles Google sign-in for both "login" and "join" modes.
-   * - "login": sign in → StoreProvider auto-creates couple if needed → go to /
-   * - "join": sign in → link to existing couple by code → go to /
+   * Inicia o fluxo OAuth com Google (redirect, não popup).
+   * No modo "join", salva o código no sessionStorage antes do redirect;
+   * o StoreProvider vai lê-lo após o retorno do OAuth e vincular o casal.
    */
   async function handleGoogleSignIn() {
     setLoading(true);
     setError(null);
 
     try {
-      const user = await signInWithGoogle();
-
-      // If user entered a join code, try to link to that couple
-      if (mode === "join" && code.trim()) {
-        const coupleId = await joinCoupleByCode(user.uid, code.trim());
-        if (!coupleId) {
-          setError(
-            "Código não encontrado. Verifique e tente novamente."
-          );
-          setLoading(false);
-          return;
-        }
+      if (mode === "join" && !code.trim()) {
+        setError("Insira o código de conexão do seu parceiro.");
+        setLoading(false);
+        return;
       }
 
-      // StoreProvider will pick up the auth change via onAuthStateChanged
-      // and load couple data; AuthGuard will handle showing the app.
-      navigate({ to: "/" });
+      await signInWithGoogle(mode === "join" ? code : undefined);
+      // A partir daqui o browser redireciona para o Google.
+      // O loading fica true enquanto o redirect acontece.
     } catch (err: unknown) {
       console.error("[LoginPage] signInWithGoogle error:", err);
       const msg =
-        err instanceof Error ? err.message : "Erro ao entrar. Tente novamente.";
-
-      if (msg.includes("popup-closed-by-user") || msg.includes("cancelled-popup-request")) {
-        setError(null); // User just closed the popup — not an error
-      } else if (msg.includes("popup-blocked")) {
-        setError("Pop-up bloqueado pelo navegador. Permita pop-ups para este site.");
-      } else {
-        setError(msg);
-      }
+        err instanceof Error ? err.message : "Erro ao iniciar login. Tente novamente.";
+      setError(msg);
+      setLoading(false);
     }
-
-    setLoading(false);
   }
 
   return (
@@ -124,7 +117,11 @@ function LoginPage() {
           {/* Mode tabs */}
           <div className="flex gap-1 p-1 bg-white/5 rounded-xl mb-8">
             <button
-              onClick={() => { setMode("login"); setError(null); setCode(""); }}
+              onClick={() => {
+                setMode("login");
+                setError(null);
+                setCode("");
+              }}
               className={`flex-1 py-2 rounded-lg text-xs font-medium transition-all ${
                 mode === "login"
                   ? "bg-primary text-primary-foreground"
@@ -134,7 +131,10 @@ function LoginPage() {
               Entrar
             </button>
             <button
-              onClick={() => { setMode("join"); setError(null); }}
+              onClick={() => {
+                setMode("join");
+                setError(null);
+              }}
               className={`flex-1 py-2 rounded-lg text-xs font-medium transition-all ${
                 mode === "join"
                   ? "bg-primary text-primary-foreground"
@@ -189,7 +189,7 @@ function LoginPage() {
             {loading ? (
               <>
                 <Loader2 className="size-4 animate-spin" />
-                Aguardando…
+                Redirecionando…
               </>
             ) : (
               <>
