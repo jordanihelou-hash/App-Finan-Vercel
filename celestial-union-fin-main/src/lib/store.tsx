@@ -100,6 +100,7 @@ interface State {
   coupleCode: string;
   partnerLinked: boolean;
   authedEmail: string | null;
+  currentUserId: string | null;
   coupleId: string | null;
   authState: AuthState;
   dataLoading: boolean;
@@ -115,6 +116,7 @@ const initialState: State = {
   coupleCode: "",
   partnerLinked: false,
   authedEmail: null,
+  currentUserId: null,
   coupleId: null,
   authState: "loading",
   dataLoading: false,
@@ -200,22 +202,27 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       });
 
   const refetchMembers = async (coupleId: string) => {
-    const { data } = await supabase
+    // Step 1: get user_ids from couple_members
+    const { data: cmData } = await supabase
       .from("couple_members")
-      .select("user_id, user_profiles(*)")
+      .select("user_id")
       .eq("couple_id", coupleId);
-    if (!data) return;
-    const members: Member[] = data
-      .filter((m) => m.user_profiles)
-      .map((m) => {
-        const p = m.user_profiles as UserProfile;
-        return {
-          id: m.user_id,
-          name: p.name,
-          avatarColor: p.avatar_color,
-          initial: p.initial,
-        };
-      });
+    if (!cmData || cmData.length === 0) return;
+
+    // Step 2: fetch profiles for those user_ids
+    const ids = cmData.map((r) => r.user_id as string);
+    const { data: profiles } = await supabase
+      .from("user_profiles")
+      .select("id, name, avatar_color, initial")
+      .in("id", ids);
+    if (!profiles) return;
+
+    const members: Member[] = profiles.map((p) => ({
+      id: p.id as string,
+      name: p.name as string,
+      avatarColor: p.avatar_color as string,
+      initial: p.initial as string,
+    }));
     setState((s) => ({ ...s, members, partnerLinked: members.length >= 2 }));
   };
 
@@ -286,7 +293,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         // ── Carga inicial de todos os dados ────────────────────────────────
         const [
           coupleResult,
-          membersResult,
+          memberIdsResult,
           categoriesResult,
           accountsResult,
           transactionsResult,
@@ -295,7 +302,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           supabase.from("couples").select("code").eq("id", coupleId).single(),
           supabase
             .from("couple_members")
-            .select("user_id, user_profiles(*)")
+            .select("user_id")
             .eq("couple_id", coupleId),
           supabase.from("categories").select("*").eq("couple_id", coupleId),
           supabase.from("accounts").select("*").eq("couple_id", coupleId),
@@ -312,17 +319,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
         const coupleCode = coupleResult.data?.code ?? "";
 
-        const members: Member[] = (membersResult.data ?? [])
-          .filter((m) => m.user_profiles)
-          .map((m) => {
-            const p = m.user_profiles as UserProfile;
-            return {
-              id: m.user_id,
-              name: p.name,
-              avatarColor: p.avatar_color,
-              initial: p.initial,
-            };
-          });
+        // Fetch user profiles for all couple members
+        const memberUserIds = (memberIdsResult.data ?? []).map((r) => r.user_id as string);
+        let members: Member[] = [];
+        if (memberUserIds.length > 0) {
+          const { data: profilesData } = await supabase
+            .from("user_profiles")
+            .select("id, name, avatar_color, initial")
+            .in("id", memberUserIds);
+          members = (profilesData ?? []).map((p) => ({
+            id: p.id as string,
+            name: p.name as string,
+            avatarColor: p.avatar_color as string,
+            initial: p.initial as string,
+          }));
+        }
 
         const categories = (categoriesResult.data ?? []) as Category[];
 
@@ -350,6 +361,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           transactions,
           investments,
           authedEmail: user.email ?? null,
+          currentUserId: user.id,
           authState: "authenticated",
           dataLoading: false,
         }));
