@@ -1,10 +1,9 @@
 {
-  "framework": null,
+  "framework": "vite",
   "buildCommand": "bun run build",
-  "installCommand": "bun install",
+  "installCommand": "bun install --no-frozen-lockfile",
   "outputDirectory": "dist",
-  "routes": [
-    { "handle": "filesystem" },
-    { "src": "/(.*)", "dest": "/index.html" }
+  "rewrites": [
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
 }
