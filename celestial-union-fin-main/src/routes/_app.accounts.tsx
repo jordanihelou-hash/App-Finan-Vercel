@@ -14,7 +14,12 @@ function AccountsPage() {
   const [view, setView] = useState<"unified" | "individual">("unified");
   const [showTransfer, setShowTransfer] = useState(false);
 
-  const total = state.accounts.reduce((s, a) => s + a.balance, 0);
+  const displayAccounts =
+    view === "individual" && state.currentUserId
+      ? state.accounts.filter((a) => a.memberId === state.currentUserId)
+      : state.accounts;
+
+  const total = displayAccounts.reduce((s, a) => s + a.balance, 0);
 
   return (
     <>
@@ -37,13 +42,13 @@ function AccountsPage() {
         <p className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold">Patrimônio em contas</p>
         <p className="mono text-3xl font-semibold mt-1">{formatBRL(total)}</p>
         <div className="mt-3 flex items-center justify-between text-[11px] text-muted-foreground">
-          <span>{state.accounts.length} contas vinculadas</span>
+          <span>{displayAccounts.length} contas vinculadas</span>
           <span className="text-emerald">● Sincronizadas</span>
         </div>
       </div>
 
       <div className="flex flex-col gap-3">
-        {state.accounts.map((a, i) => {
+        {displayAccounts.map((a, i) => {
           const member = state.members.find((m) => m.id === a.memberId);
           return (
             <div
