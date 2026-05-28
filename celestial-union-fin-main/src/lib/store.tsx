@@ -144,6 +144,7 @@ const StoreContext = createContext<StoreApi | null>(null);
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<State>(initialState);
   const channelRef = useRef<RealtimeChannel | null>(null);
+  const dataLoadedRef = useRef(false);
 
   function clearSubscriptions() {
     if (channelRef.current) {
@@ -225,8 +226,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
-      // Ignora eventos de token refresh para não recarregar tudo
-      if (event === "TOKEN_REFRESHED") return;
+      // TOKEN_REFRESHED: pula se já carregamos os dados (evita reload desnecessário)
+      // mas deixa passar se ainda não carregamos (token refresh pode ser o 1º evento)
+      if (event === "TOKEN_REFRESHED" && dataLoadedRef.current) return;
 
       if (!session) {
         clearSubscriptions();
@@ -336,6 +338,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           dbToInvestment(r as unknown as Record<string, unknown>)
         );
 
+        dataLoadedRef.current = true;
         setState((s) => ({
           ...s,
           coupleCode,
