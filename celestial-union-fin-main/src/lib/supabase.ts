@@ -166,7 +166,15 @@ export async function createCouple(userId: string): Promise<string> {
     .insert({ couple_id: coupleId, user_id: userId });
   if (memberError) throw memberError;
 
-  // Semeia categorias padrão
+  // Vincula o perfil ao casal ANTES de inserir categorias
+  // (necessário para get_my_couple_id() retornar o coupleId correto no RLS)
+  const { error: profileError } = await supabase
+    .from("user_profiles")
+    .update({ couple_id: coupleId })
+    .eq("id", userId);
+  if (profileError) throw profileError;
+
+  // Semeia categorias padrão (agora get_my_couple_id() já retorna o coupleId)
   const categories = DEFAULT_CATEGORIES.map((c) => ({
     ...c,
     couple_id: coupleId,
@@ -175,13 +183,6 @@ export async function createCouple(userId: string): Promise<string> {
     .from("categories")
     .insert(categories);
   if (catError) throw catError;
-
-  // Vincula o perfil ao casal
-  const { error: profileError } = await supabase
-    .from("user_profiles")
-    .update({ couple_id: coupleId })
-    .eq("id", userId);
-  if (profileError) throw profileError;
 
   return coupleId;
 }
