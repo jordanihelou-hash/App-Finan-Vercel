@@ -1,10 +1,12 @@
 /**
- * Store — Firebase-backed global state for the Couple Finance app.
- * Uses Firebase Auth (onAuthStateChanged) and Firestore (onSnapshot) for
- * real-time sync between partners. All writes go directly to Firestore.
+ * Store — Supabase-backed global state for the Cofre do Casal app.
  *
- * The StoreProvider lives inside the _app layout (client-only); Firebase is
- * never initialized on the SSR pass (guards via typeof window + useEffect).
+ * Substitui a implementação Firebase/Firestore.
+ * Usa supabase.auth.onAuthStateChange para sessão e
+ * supabase.channel() para sync em tempo real entre parceiros.
+ *
+ * O StoreProvider vive dentro do layout _app (client-only).
+ * Supabase nunca é inicializado no SSR (guard via typeof window + useEffect).
  */
 
 import {
@@ -16,25 +18,16 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import {
-  collection,
-  onSnapshot,
-  doc,
-  addDoc,
-  updateDoc,
-  serverTimestamp,
-  arrayUnion,
-  getDoc,
-} from "firebase/firestore";
+import type { RealtimeChannel } from "@supabase/supabase-js";
 
 import {
-  onAuthChange,
+  supabase,
   getOrCreateUserProfile,
   createCouple,
+  joinCoupleByCode,
   signOut,
-  getFirebaseDb,
   type UserProfile,
-} from "./firebase";
+} from "./supabase";
 
 import type {
   Account,
@@ -45,11 +38,57 @@ import type {
   Member,
 } from "./mock-data";
 
+// ── Type helpers (DB snake_case → TS camelCase) ───────────────────────────────
+
+function dbToAccount(row: Record<string, unknown>): Account {
+  return {
+    id: row.id as string,
+    name: row.name as string,
+    type: row.type as Account["type"],
+    balance: row.balance as number,
+    memberId: row.member_id as string,
+    brand: row.brand as string | undefined,
+  };
+}
+
+function dbToTransaction(row: Record<string, unknown>): Transaction {
+  return {
+    id: row.id as string,
+    description: row.description as string,
+    amount: row.amount as number,
+    date: row.date as string,
+    type: row.type as Transaction["type"],
+    categoryId: row.category_id as string,
+    memberId: row.member_id as string,
+    accountId: row.account_id as string,
+  };
+}
+
+function dbToInvestment(row: Record<string, unknown>): Investment {
+  const moves = (row.investment_moves as Record<string, unknown>[] | undefined) ?? [];
+  return {
+    id: row.id as string,
+    name: row.name as string,
+    ticker: row.ticker as string | undefined,
+    type: row.type as Investment["type"],
+    applied: row.applied as number,
+    projectedYield: row.projected_yield as number,
+    moves: moves.map(
+      (m): InvestmentMove => ({
+        id: m.id as string,
+        kind: m.kind as InvestmentMove["kind"],
+        amount: m.amount as number,
+        date: m.date as string,
+      })
+    ),
+  };
+}
+
 // ── State ─────────────────────────────────────────────────────────────────────
 
-/** 'loading' = waiting for Firebase Auth to resolve (initial paint)
- *  'authenticated' = user is logged in and couple data is subscribed
- *  'unauthenticated' = no user — AuthGuard will redirect to /login */
+/** 'loading'         → aguardando Supabase Auth resolver (primeiro render)
+ *  'authenticated'   → usuário logado, dados do casal carregados
+ *  'unauthenticated' → sem sessão — AuthGuard redirecionará para /login */
 export type AuthState = "loading" | "authenticated" | "unauthenticated";
 
 interface State {
@@ -93,7 +132,7 @@ interface StoreApi {
     investmentId: string,
     move: { kind: "aporte" | "resgate"; amount: number }
   ) => void;
-  /** @deprecated Firebase Auth handles login; kept for interface compatibility */
+  /** @deprecated mantido por compatibilidade de interface */
   login: (email: string) => void;
   logout: () => void;
 }
@@ -104,143 +143,289 @@ const StoreContext = createContext<StoreApi | null>(null);
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<State>(initialState);
-  // Keep refs to Firestore unsubscribe functions so we can tear them down
-  const unsubs = useRef<Array<() => void>>([]);
+  const channelRef = useRef<RealtimeChannel | null>(null);
 
   function clearSubscriptions() {
-    unsubs.current.forEach((fn) => fn());
-    unsubs.current = [];
+    if (channelRef.current) {
+      supabase.removeChannel(channelRef.current);
+      channelRef.current = null;
+    }
   }
 
+  // Helpers para refetch de uma coleção específica
+  const refetchAccounts = (coupleId: string) =>
+    supabase
+      .from("accounts")
+      .select("*")
+      .eq("couple_id", coupleId)
+      .then(({ data }) => {
+        if (data) setState((s) => ({ ...s, accounts: data.map(dbToAccount) }));
+      });
+
+  const refetchTransactions = (coupleId: string) =>
+    supabase
+      .from("transactions")
+      .select("*")
+      .eq("couple_id", coupleId)
+      .order("date", { ascending: false })
+      .then(({ data }) => {
+        if (data)
+          setState((s) => ({ ...s, transactions: data.map(dbToTransaction) }));
+      });
+
+  const refetchCategories = (coupleId: string) =>
+    supabase
+      .from("categories")
+      .select("*")
+      .eq("couple_id", coupleId)
+      .then(({ data }) => {
+        if (data)
+          setState((s) => ({ ...s, categories: data as Category[] }));
+      });
+
+  const refetchInvestments = (coupleId: string) =>
+    supabase
+      .from("investments")
+      .select("*, investment_moves(*)")
+      .eq("couple_id", coupleId)
+      .then(({ data }) => {
+        if (data)
+          setState((s) => ({
+            ...s,
+            investments: data.map((r) =>
+              dbToInvestment(r as unknown as Record<string, unknown>)
+            ),
+          }));
+      });
+
+  const refetchMembers = async (coupleId: string) => {
+    const { data } = await supabase
+      .from("couple_members")
+      .select("user_id, user_profiles(*)")
+      .eq("couple_id", coupleId);
+    if (!data) return;
+    const members: Member[] = data
+      .filter((m) => m.user_profiles)
+      .map((m) => {
+        const p = m.user_profiles as UserProfile;
+        return {
+          id: m.user_id,
+          name: p.name,
+          avatarColor: p.avatar_color,
+          initial: p.initial,
+        };
+      });
+    setState((s) => ({ ...s, members, partnerLinked: members.length >= 2 }));
+  };
+
   useEffect(() => {
-    // Guard: Firebase must only run in the browser
+    // Guard: Supabase Auth só funciona no browser
     if (typeof window === "undefined") return;
 
-    const unsubAuth = onAuthChange(async (user) => {
-      if (!user) {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      // Ignora eventos de token refresh para não recarregar tudo
+      if (event === "TOKEN_REFRESHED") return;
+
+      if (!session) {
         clearSubscriptions();
         setState({ ...initialState, authState: "unauthenticated" });
         return;
       }
 
-      setState((s) => ({ ...s, authState: "loading", dataLoading: true, error: null }));
+      setState((s) => ({
+        ...s,
+        authState: "loading",
+        dataLoading: true,
+        error: null,
+      }));
 
       try {
-        // Fetch (or create) user profile
-        let profile: UserProfile = await getOrCreateUserProfile(user);
+        const user = session.user;
+        const displayName =
+          (user.user_metadata?.full_name as string | null) ??
+          (user.user_metadata?.name as string | null) ??
+          null;
 
-        // Auto-create couple if user has none yet
-        if (!profile.coupleId) {
-          const coupleId = await createCouple(user.uid);
-          profile = { ...profile, coupleId };
+        // Busca (ou cria) perfil
+        let profile = await getOrCreateUserProfile(
+          user.id,
+          user.email ?? "",
+          displayName
+        );
+
+        // Verifica se há um código de casal pendente (fluxo "Vincular ao parceiro")
+        const pendingCode =
+          typeof window !== "undefined"
+            ? sessionStorage.getItem("pending_join_code")
+            : null;
+
+        if (pendingCode && !profile.couple_id) {
+          // Tenta vincular ao casal do parceiro
+          const joined = await joinCoupleByCode(user.id, pendingCode);
+          if (joined) {
+            profile = { ...profile, couple_id: joined };
+          } else {
+            // Código inválido → cria casal próprio
+            console.warn("[Store] Código de convite inválido:", pendingCode);
+            const coupleId = await createCouple(user.id);
+            profile = { ...profile, couple_id: coupleId };
+          }
+          sessionStorage.removeItem("pending_join_code");
+        } else if (!profile.couple_id) {
+          // Novo usuário sem casal: cria automaticamente
+          const coupleId = await createCouple(user.id);
+          profile = { ...profile, couple_id: coupleId };
         }
 
-        const coupleId = profile.coupleId!;
-        const db = getFirebaseDb();
+        const coupleId = profile.couple_id!;
 
-        // ── Subscribe: couple document (code + member list) ──────────────────
-        const unsubCouple = onSnapshot(
-          doc(db, "couples", coupleId),
-          async (snap) => {
-            if (!snap.exists()) return;
-            const data = snap.data();
-            const memberIds: string[] = data.memberIds ?? [];
+        // ── Carga inicial de todos os dados ────────────────────────────────
+        const [
+          coupleResult,
+          membersResult,
+          categoriesResult,
+          accountsResult,
+          transactionsResult,
+          investmentsResult,
+        ] = await Promise.all([
+          supabase.from("couples").select("code").eq("id", coupleId).single(),
+          supabase
+            .from("couple_members")
+            .select("user_id, user_profiles(*)")
+            .eq("couple_id", coupleId),
+          supabase.from("categories").select("*").eq("couple_id", coupleId),
+          supabase.from("accounts").select("*").eq("couple_id", coupleId),
+          supabase
+            .from("transactions")
+            .select("*")
+            .eq("couple_id", coupleId)
+            .order("date", { ascending: false }),
+          supabase
+            .from("investments")
+            .select("*, investment_moves(*)")
+            .eq("couple_id", coupleId),
+        ]);
 
-            // Resolve member profiles from Firestore
-            const resolved = await Promise.all(
-              memberIds.map(async (uid) => {
-                const profileSnap = await getDoc(
-                  doc(db, "userProfiles", uid)
-                );
-                if (!profileSnap.exists()) return null;
-                const p = profileSnap.data() as UserProfile;
-                return {
-                  id: uid,
-                  name: p.name,
-                  avatarColor: p.avatarColor,
-                  initial: p.initial,
-                } satisfies Member;
-              })
-            );
+        const coupleCode = coupleResult.data?.code ?? "";
 
-            const members = resolved.filter(Boolean) as Member[];
-            setState((s) => ({
-              ...s,
-              coupleCode: data.code ?? "",
-              partnerLinked: memberIds.length >= 2,
-              members,
-            }));
-          }
+        const members: Member[] = (membersResult.data ?? [])
+          .filter((m) => m.user_profiles)
+          .map((m) => {
+            const p = m.user_profiles as UserProfile;
+            return {
+              id: m.user_id,
+              name: p.name,
+              avatarColor: p.avatar_color,
+              initial: p.initial,
+            };
+          });
+
+        const categories = (categoriesResult.data ?? []) as Category[];
+
+        const accounts = (accountsResult.data ?? []).map((r) =>
+          dbToAccount(r as unknown as Record<string, unknown>)
         );
-        unsubs.current.push(unsubCouple);
 
-        // ── Subscribe: categories ────────────────────────────────────────────
-        const unsubCats = onSnapshot(
-          collection(db, "couples", coupleId, "categories"),
-          (snap) => {
-            const categories = snap.docs.map(
-              (d) => ({ id: d.id, ...d.data() } as Category)
-            );
-            setState((s) => ({ ...s, categories }));
-          }
+        const transactions = (transactionsResult.data ?? []).map((r) =>
+          dbToTransaction(r as unknown as Record<string, unknown>)
         );
-        unsubs.current.push(unsubCats);
 
-        // ── Subscribe: accounts ──────────────────────────────────────────────
-        const unsubAccounts = onSnapshot(
-          collection(db, "couples", coupleId, "accounts"),
-          (snap) => {
-            const accounts = snap.docs.map(
-              (d) => ({ id: d.id, ...d.data() } as Account)
-            );
-            setState((s) => ({ ...s, accounts }));
-          }
+        const investments = (investmentsResult.data ?? []).map((r) =>
+          dbToInvestment(r as unknown as Record<string, unknown>)
         );
-        unsubs.current.push(unsubAccounts);
-
-        // ── Subscribe: transactions (sorted newest first) ────────────────────
-        const unsubTx = onSnapshot(
-          collection(db, "couples", coupleId, "transactions"),
-          (snap) => {
-            const transactions = snap.docs
-              .map((d) => ({ id: d.id, ...d.data() } as Transaction))
-              .sort(
-                (a, b) =>
-                  new Date(b.date).getTime() - new Date(a.date).getTime()
-              );
-            setState((s) => ({ ...s, transactions }));
-          }
-        );
-        unsubs.current.push(unsubTx);
-
-        // ── Subscribe: investments ───────────────────────────────────────────
-        const unsubInv = onSnapshot(
-          collection(db, "couples", coupleId, "investments"),
-          (snap) => {
-            const investments = snap.docs.map(
-              (d) => ({ id: d.id, ...d.data() } as Investment)
-            );
-            setState((s) => ({ ...s, investments }));
-          }
-        );
-        unsubs.current.push(unsubInv);
 
         setState((s) => ({
           ...s,
-          authedEmail: user.email,
+          coupleCode,
           coupleId,
+          partnerLinked: members.length >= 2,
+          members,
+          categories,
+          accounts,
+          transactions,
+          investments,
+          authedEmail: user.email ?? null,
           authState: "authenticated",
           dataLoading: false,
         }));
+
+        // ── Subscriptions Realtime ─────────────────────────────────────────
+        clearSubscriptions();
+        const channel = supabase
+          .channel(`couple-${coupleId}`)
+          .on(
+            "postgres_changes",
+            {
+              event: "*",
+              schema: "public",
+              table: "categories",
+              filter: `couple_id=eq.${coupleId}`,
+            },
+            () => refetchCategories(coupleId)
+          )
+          .on(
+            "postgres_changes",
+            {
+              event: "*",
+              schema: "public",
+              table: "accounts",
+              filter: `couple_id=eq.${coupleId}`,
+            },
+            () => refetchAccounts(coupleId)
+          )
+          .on(
+            "postgres_changes",
+            {
+              event: "*",
+              schema: "public",
+              table: "transactions",
+              filter: `couple_id=eq.${coupleId}`,
+            },
+            () => refetchTransactions(coupleId)
+          )
+          .on(
+            "postgres_changes",
+            {
+              event: "*",
+              schema: "public",
+              table: "investments",
+              filter: `couple_id=eq.${coupleId}`,
+            },
+            () => refetchInvestments(coupleId)
+          )
+          .on(
+            "postgres_changes",
+            {
+              event: "*",
+              schema: "public",
+              table: "investment_moves",
+            },
+            () => refetchInvestments(coupleId)
+          )
+          .on(
+            "postgres_changes",
+            {
+              event: "*",
+              schema: "public",
+              table: "couple_members",
+              filter: `couple_id=eq.${coupleId}`,
+            },
+            () => refetchMembers(coupleId)
+          )
+          .subscribe();
+
+        channelRef.current = channel;
       } catch (err: unknown) {
-        console.error("StoreProvider: failed to load couple data", err);
+        console.error("StoreProvider: falha ao carregar dados do casal", err);
         const message =
           err instanceof Error
             ? err.message
             : "Erro ao carregar dados. Tente novamente.";
         setState((s) => ({
           ...s,
-          authState: "authenticated", // still logged in
+          authState: "authenticated",
           dataLoading: false,
           error: message,
         }));
@@ -248,84 +433,101 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     });
 
     return () => {
-      unsubAuth();
+      subscription.unsubscribe();
       clearSubscriptions();
     };
   }, []);
 
-  // ── Memoised API ─────────────────────────────────────────────────────────────
+  // ── Memoised API ──────────────────────────────────────────────────────────────
   const api = useMemo<StoreApi>(
     () => ({
       state,
 
       addTransaction: async (tx) => {
         if (!state.coupleId) return;
-        const db = getFirebaseDb();
 
-        // Write transaction
-        await addDoc(
-          collection(db, "couples", state.coupleId, "transactions"),
-          { ...tx, createdAt: serverTimestamp() }
-        );
+        // Insere a transação
+        const { error } = await supabase.from("transactions").insert({
+          couple_id: state.coupleId,
+          description: tx.description,
+          amount: tx.amount,
+          date: tx.date,
+          type: tx.type,
+          category_id: tx.categoryId,
+          member_id: tx.memberId,
+          account_id: tx.accountId,
+        });
+        if (error) {
+          console.error("[Store] addTransaction:", error);
+          return;
+        }
 
-        // Update account balance
+        // Atualiza saldo da conta
         const account = state.accounts.find((a) => a.id === tx.accountId);
         if (account) {
           const delta = tx.type === "income" ? tx.amount : -tx.amount;
-          await updateDoc(
-            doc(db, "couples", state.coupleId, "accounts", tx.accountId),
-            { balance: account.balance + delta }
-          );
+          await supabase
+            .from("accounts")
+            .update({ balance: account.balance + delta })
+            .eq("id", tx.accountId);
         }
       },
 
       addCategory: async (c) => {
         if (!state.coupleId) return;
-        const db = getFirebaseDb();
-        await addDoc(
-          collection(db, "couples", state.coupleId, "categories"),
-          c
-        );
+        const { error } = await supabase.from("categories").insert({
+          couple_id: state.coupleId,
+          name: c.name,
+          type: c.type,
+          color: c.color,
+        });
+        if (error) console.error("[Store] addCategory:", error);
       },
 
       transferBetween: async (fromId, toId, amount) => {
         if (!state.coupleId) return;
-        const db = getFirebaseDb();
         const from = state.accounts.find((a) => a.id === fromId);
         const to = state.accounts.find((a) => a.id === toId);
         if (!from || !to) return;
-        await updateDoc(
-          doc(db, "couples", state.coupleId, "accounts", fromId),
-          { balance: from.balance - amount }
-        );
-        await updateDoc(
-          doc(db, "couples", state.coupleId, "accounts", toId),
-          { balance: to.balance + amount }
-        );
+
+        await Promise.all([
+          supabase
+            .from("accounts")
+            .update({ balance: from.balance - amount })
+            .eq("id", fromId),
+          supabase
+            .from("accounts")
+            .update({ balance: to.balance + amount })
+            .eq("id", toId),
+        ]);
       },
 
       addInvestmentMove: async (investmentId, move) => {
         if (!state.coupleId) return;
-        const db = getFirebaseDb();
         const inv = state.investments.find((i) => i.id === investmentId);
         if (!inv) return;
-        const newMove: InvestmentMove = {
-          id: `mv_${Date.now()}`,
-          date: new Date().toISOString(),
-          ...move,
-        };
+
         const newApplied =
           move.kind === "aporte"
             ? inv.applied + move.amount
             : Math.max(0, inv.applied - move.amount);
-        await updateDoc(
-          doc(db, "couples", state.coupleId, "investments", investmentId),
-          { applied: newApplied, moves: arrayUnion(newMove) }
-        );
+
+        await Promise.all([
+          supabase.from("investment_moves").insert({
+            investment_id: investmentId,
+            kind: move.kind,
+            amount: move.amount,
+            date: new Date().toISOString(),
+          }),
+          supabase
+            .from("investments")
+            .update({ applied: newApplied })
+            .eq("id", investmentId),
+        ]);
       },
 
       login: (_email) => {
-        // No-op: auth is fully handled by Firebase onAuthStateChanged above
+        // No-op: auth é gerenciado pelo Supabase onAuthStateChange
       },
 
       logout: () => {
@@ -335,16 +537,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [state]
   );
 
-  return (
-    <StoreContext.Provider value={api}>{children}</StoreContext.Provider>
-  );
+  return <StoreContext.Provider value={api}>{children}</StoreContext.Provider>;
 }
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
 export function useStore() {
   const ctx = useContext(StoreContext);
-  if (!ctx) throw new Error("useStore must be used inside <StoreProvider>");
+  if (!ctx) throw new Error("useStore deve ser usado dentro de <StoreProvider>");
   return ctx;
 }
 
