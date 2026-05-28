@@ -5,12 +5,6 @@ import { useStore, formatBRL } from "@/lib/store";
 import { Plus, Search, X, ArrowUpRight, ArrowDownRight, Tag } from "lucide-react";
 
 export const Route = createFileRoute("/_app/transactions")({
-  head: () => ({
-    meta: [
-      { title: "Transações — Gestor Financeiro do Casal" },
-      { name: "description", content: "Livro de registros do casal com filtros e categorias dinâmicas." },
-    ],
-  }),
   component: TransactionsPage,
 });
 
