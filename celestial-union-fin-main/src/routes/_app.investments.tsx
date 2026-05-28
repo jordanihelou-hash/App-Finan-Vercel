@@ -7,12 +7,6 @@ import type { Investment } from "@/lib/mock-data";
 import { Sheet } from "./_app.transactions";
 
 export const Route = createFileRoute("/_app/investments")({
-  head: () => ({
-    meta: [
-      { title: "Investimentos — Gestor Financeiro do Casal" },
-      { name: "description", content: "Carteira de investimentos consolidada do casal com aportes e resgates." },
-    ],
-  }),
   component: InvestmentsPage,
 });
 
