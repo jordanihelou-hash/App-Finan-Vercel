@@ -5,14 +5,16 @@ import { KpiCard } from "@/components/KpiCard";
 import { GeminiAdvisor } from "@/components/GeminiAdvisor";
 import { CashflowChart } from "@/components/CashflowChart";
 import { useStore, formatBRL } from "@/lib/store";
+import { AddTransactionModal } from "./_app.transactions";
 
 export const Route = createFileRoute("/_app/")({
   component: Dashboard,
 });
 
 function Dashboard() {
-  const { state } = useStore();
+  const { state, addTransaction } = useStore();
   const [view, setView] = useState<"unified" | "individual">("unified");
+  const [showAdd, setShowAdd] = useState(false);
 
   const monthStart = useMemo(() => {
     const d = new Date();
@@ -61,6 +63,17 @@ function Dashboard() {
       {view === "unified" ? <CashflowChart data={chartData} /> : <IndividualView />}
 
       <GeminiAdvisor income={income} expense={expense} invested={invested} />
+
+      {/* Floating action button */}
+      <button
+        onClick={() => setShowAdd(true)}
+        aria-label="Novo lançamento"
+        className="fixed bottom-24 right-5 size-14 grid place-items-center bg-primary text-primary-foreground rounded-2xl shadow-[0_8px_24px_-4px_oklch(0.68_0.22_305/0.55)] active:scale-95 transition-transform z-40 text-2xl font-light"
+      >
+        +
+      </button>
+
+      {showAdd && <AddTransactionModal onClose={() => setShowAdd(false)} onSave={addTransaction} />}
     </>
   );
 }
