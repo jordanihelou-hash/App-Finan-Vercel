@@ -5,12 +5,6 @@ import { useStore } from "@/lib/store";
 import { Copy, Check, Link2, Shield, RefreshCw } from "lucide-react";
 
 export const Route = createFileRoute("/_app/partnership")({
-  head: () => ({
-    meta: [
-      { title: "Parceria — Gestor Financeiro do Casal" },
-      { name: "description", content: "Gerencie convites, vínculos e sincronização do casal." },
-    ],
-  }),
   component: PartnershipPage,
 });
 
