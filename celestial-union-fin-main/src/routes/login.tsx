@@ -4,12 +4,6 @@ import { Sparkles, ArrowRight, Loader2 } from "lucide-react";
 import { signInWithGoogle, supabase } from "@/lib/supabase";
 
 export const Route = createFileRoute("/login")({
-  head: () => ({
-    meta: [
-      { title: "Entrar — Gestor Financeiro do Casal" },
-      { name: "description", content: "Acesse o portal financeiro do seu casal." },
-    ],
-  }),
   component: LoginPage,
 });
 
