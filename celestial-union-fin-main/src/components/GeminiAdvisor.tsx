@@ -1,7 +1,16 @@
 import { useState } from "react";
 import { useStore } from "@/lib/store";
-import { analyzeFinances, type Analysis } from "@/lib/api/analyze.functions";
 import { Sparkles, Loader2, AlertTriangle, Lightbulb, Zap } from "lucide-react";
+
+export interface Analysis {
+  score: number;
+  status: "Saudável" | "Atenção" | "Crítico";
+  summary: string;
+  critical: string[];
+  suggestions: { title: string; detail: string }[];
+  risks: string[];
+  goldenTip: string;
+}
 
 // ── Local fallback generator (runs synchronously before first server call) ────
 
@@ -61,19 +70,22 @@ export function GeminiAdvisor({
     setLoading(true);
     setApiError(null);
     try {
-      const result = await analyzeFinances({
-        data: {
+      const res = await fetch("/api/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
           income,
           expense,
           invested,
           memberNames: state.members.map((m) => m.name),
-        },
+        }),
       });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const result: Analysis = await res.json();
       setAnalysis(result);
     } catch (err) {
-      console.error("[GeminiAdvisor] analyzeFinances error:", err);
+      console.error("[GeminiAdvisor] /api/analyze error:", err);
       setApiError("Não foi possível gerar análise. Verifique a chave Gemini.");
-      // Keep current analysis visible
     }
     setLoading(false);
   };
