@@ -77,39 +77,39 @@ export interface UserProfile {
 
 /**
  * Busca ou cria o perfil do usuário autenticado em user_profiles.
+ * Usa upsert com ignoreDuplicates para ser seguro contra race conditions.
  */
 export async function getOrCreateUserProfile(
   userId: string,
   email: string,
   displayName: string | null
 ): Promise<UserProfile> {
-  // Tenta buscar perfil existente
-  const { data: existing, error: fetchError } = await supabase
-    .from("user_profiles")
-    .select("*")
-    .eq("id", userId)
-    .maybeSingle();
-
-  if (fetchError) throw fetchError;
-  if (existing) return existing as UserProfile;
-
-  // Cria novo perfil
   const name = displayName ?? email.split("@")[0] ?? "Usuário";
-  const newProfile: UserProfile = {
+  const draft = {
     id: userId,
     name,
     email,
-    couple_id: null,
+    couple_id: null as string | null,
     avatar_color: AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)],
     initial: name[0].toUpperCase(),
   };
 
-  const { error: insertError } = await supabase
+  // Upsert: insere se não existir, ignora se já existir (onConflict = id)
+  const { error: upsertError } = await supabase
     .from("user_profiles")
-    .insert(newProfile);
-  if (insertError) throw insertError;
+    .upsert(draft, { onConflict: "id", ignoreDuplicates: true });
 
-  return newProfile;
+  if (upsertError) throw upsertError;
+
+  // Busca o perfil real (pode já existir com couple_id preenchido)
+  const { data, error: fetchError } = await supabase
+    .from("user_profiles")
+    .select("*")
+    .eq("id", userId)
+    .single();
+
+  if (fetchError) throw fetchError;
+  return data as UserProfile;
 }
 
 // ── Default categories ────────────────────────────────────────────────────────
@@ -151,15 +151,14 @@ export async function createCouple(userId: string): Promise<string> {
     .maybeSingle();
   if (existing) code = generateCoupleCode(); // retry se já existir
 
-  // Cria o casal
-  const { data: couple, error: coupleError } = await supabase
-    .from("couples")
-    .insert({ code })
-    .select("id")
-    .single();
-  if (coupleError) throw coupleError;
+  // Gera UUID no cliente para evitar precisar de SELECT após INSERT
+  // (o SELECT falharia com 403 pois get_my_couple_id() ainda é null neste momento)
+  const coupleId: string = crypto.randomUUID();
 
-  const coupleId: string = couple.id;
+  const { error: coupleError } = await supabase
+    .from("couples")
+    .insert({ id: coupleId, code });
+  if (coupleError) throw coupleError;
 
   // Adiciona o usuário como membro
   const { error: memberError } = await supabase
