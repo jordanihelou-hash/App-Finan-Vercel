@@ -1,8 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Sparkles, ArrowRight, Loader2 } from "lucide-react";
-import { signInWithGoogle } from "@/lib/supabase";
-import { useStore } from "@/lib/store";
+import { signInWithGoogle, supabase } from "@/lib/supabase";
 
 export const Route = createFileRoute("/login")({
   head: () => ({
@@ -16,18 +15,17 @@ export const Route = createFileRoute("/login")({
 
 function LoginPage() {
   const navigate = useNavigate();
-  const { state } = useStore();
   const [mode, setMode] = useState<"login" | "join">("login");
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Se já está autenticado, vai para o dashboard
+  // Se já tem sessão ativa, redireciona direto para o dashboard
   useEffect(() => {
-    if (state.authState === "authenticated") {
-      navigate({ to: "/" });
-    }
-  }, [state.authState, navigate]);
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) navigate({ to: "/" });
+    });
+  }, [navigate]);
 
   /**
    * Inicia o fluxo OAuth com Google (redirect, não popup).
