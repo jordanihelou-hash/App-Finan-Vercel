@@ -44,7 +44,7 @@ function localScore(income: number, expense: number, invested: number): Analysis
       "Reserve 6 meses de despesas como fundo de emergência.",
     ],
     goldenTip:
-      "Casais que conversam sobre dinheiro com leveza investem 31% mais ao ano. Clique em "Gerar Nova Análise" para insights personalizados via IA.",
+      "Casais que conversam sobre dinheiro com leveza investem 31% mais ao ano. Clique em 'Gerar Nova Análise' para insights personalizados via IA.",
   };
 }
 
