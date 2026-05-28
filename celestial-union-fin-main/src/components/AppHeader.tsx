@@ -7,9 +7,16 @@ interface Props {
   title?: string;
 }
 
+const FALLBACK_MEMBER = {
+  name: "...",
+  initial: "?",
+  avatarColor: "from-violet-400 to-fuchsia-500",
+};
+
 export function AppHeader({ view, onViewChange, rightSlot, title }: Props) {
   const { state } = useStore();
-  const [m1, m2] = state.members;
+  const m1 = state.members[0] ?? FALLBACK_MEMBER;
+  const m2 = state.members[1] ?? FALLBACK_MEMBER;
 
   return (
     <header className="flex flex-col gap-3 animate-fade-up">
