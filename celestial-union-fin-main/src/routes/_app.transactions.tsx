@@ -17,6 +17,10 @@ function TransactionsPage() {
 
   const filtered = useMemo(() => {
     let list = state.transactions;
+    // Individual view: show only current user's transactions
+    if (view === "individual" && state.currentUserId) {
+      list = list.filter((t) => t.memberId === state.currentUserId);
+    }
     if (query) {
       const q = query.toLowerCase();
       list = list.filter(
@@ -26,7 +30,7 @@ function TransactionsPage() {
       );
     }
     return list;
-  }, [state.transactions, state.categories, query]);
+  }, [state.transactions, state.categories, query, view, state.currentUserId]);
 
   return (
     <>
@@ -119,7 +123,7 @@ function dotColor(c: string) {
   return c === "emerald" ? "bg-emerald" : c === "coral" ? "bg-coral" : c === "amber" ? "bg-amber" : c === "cyan" ? "bg-cyan" : "bg-primary";
 }
 
-function AddTransactionModal({ onClose, onSave }: { onClose: () => void; onSave: ReturnType<typeof useStore>["addTransaction"] }) {
+export function AddTransactionModal({ onClose, onSave }: { onClose: () => void; onSave: ReturnType<typeof useStore>["addTransaction"] }) {
   const { state } = useStore();
   const [type, setType] = useState<"income" | "expense">("expense");
   const [description, setDescription] = useState("");
