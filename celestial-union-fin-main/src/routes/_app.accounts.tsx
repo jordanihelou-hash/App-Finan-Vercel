@@ -6,12 +6,6 @@ import { ArrowRightLeft, Wallet } from "lucide-react";
 import { Sheet } from "./_app.transactions";
 
 export const Route = createFileRoute("/_app/accounts")({
-  head: () => ({
-    meta: [
-      { title: "Contas — Gestor Financeiro do Casal" },
-      { name: "description", content: "Contas, carteiras e saldos do casal em um só lugar." },
-    ],
-  }),
   component: AccountsPage,
 });
 
