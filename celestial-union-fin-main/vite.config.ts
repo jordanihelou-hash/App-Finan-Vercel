@@ -1,29 +1,23 @@
-// Configuração para deploy no Vercel com TanStack Start (SSR via Nitro).
-//
-// Mudanças em relação ao original:
-//   - Trocamos @lovable.dev/vite-tanstack-config pelo config padrão do TanStack Start
-//     para ter controle total sobre o preset de deploy (vercel).
-//   - Adicionamos manualmente tailwindcss e vite-tsconfig-paths (antes embutidos no Lovable config).
-//   - O preset 'vercel' faz o Nitro gerar output em .vercel/output/ automaticamente.
-//
-// Para desenvolvimento local: bun run dev  (funciona igual)
-// Para build Vercel:          bun run build
+// Vite config para deploy como SPA no Vercel.
+// Sem SSR/Nitro — TanStack Router funciona 100% client-side.
+// Vercel serve o index.html para todas as rotas via rewrite em vercel.json.
 
-import { defineConfig } from "@tanstack/react-start/config";
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import { TanStackRouterVite } from "@tanstack/router-plugin/vite";
 import viteTsConfigPaths from "vite-tsconfig-paths";
 import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
-  vite: {
-    plugins: [
-      viteTsConfigPaths({
-        projects: ["./tsconfig.json"],
-      }),
-      tailwindcss(),
-    ],
-  },
-  server: {
-    // 'vercel' gera output compatível com Vercel Serverless Functions
-    preset: "vercel",
-  },
+  plugins: [
+    // IMPORTANTE: TanStackRouterVite deve vir antes do react()
+    TanStackRouterVite({
+      routesDirectory: "./src/routes",
+      generatedRouteTree: "./src/routeTree.gen.ts",
+      quoteStyle: "double",
+    }),
+    react(),
+    viteTsConfigPaths(),
+    tailwindcss(),
+  ],
 });
