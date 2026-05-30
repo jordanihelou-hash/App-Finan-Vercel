@@ -133,7 +133,7 @@ export function GeminiAdvisor({
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-2">
           <div className="size-5 bg-gradient-to-tr from-primary to-cyan rounded-full blur-[2px] animate-pulse" />
-          <span className="text-sm font-semibold tracking-tight">Gemini Advisor</span>
+          <span className="text-sm font-semibold tracking-tight">Ana</span>
         </div>
         <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-primary/20 text-primary uppercase tracking-wider">
           Pro
