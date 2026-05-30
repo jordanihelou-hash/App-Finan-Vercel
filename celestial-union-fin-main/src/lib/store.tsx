@@ -128,7 +128,8 @@ const initialState: State = {
 interface StoreApi {
   state: State;
   addTransaction: (tx: Omit<Transaction, "id">) => void;
-  addCategory: (c: Omit<Category, "id">) => void;
+  /** Retorna o ID da nova categoria criada, ou null em caso de erro */
+  addCategory: (c: Omit<Category, "id">) => Promise<string | null>;
   addAccount: (a: Omit<Account, "id">) => void;
   addInvestment: (inv: Omit<Investment, "id" | "moves">) => void;
   transferBetween: (fromId: string, toId: string, amount: number) => void;
@@ -499,8 +500,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        // Atualiza saldo da conta
-        const account = state.accounts.find((a) => a.id === tx.accountId);
+        // Atualiza saldo da conta (só se accountId for válido)
+        const account = tx.accountId ? state.accounts.find((a) => a.id === tx.accountId) : null;
         if (account) {
           const delta = tx.type === "income" ? tx.amount : -tx.amount;
           await supabase
@@ -510,15 +511,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
       },
 
-      addCategory: async (c) => {
-        if (!state.coupleId) return;
-        const { error } = await supabase.from("categories").insert({
-          couple_id: state.coupleId,
-          name: c.name,
-          type: c.type,
-          color: c.color,
-        });
-        if (error) console.error("[Store] addCategory:", error);
+      addCategory: async (c): Promise<string | null> => {
+        if (!state.coupleId) return null;
+        const { data, error } = await supabase
+          .from("categories")
+          .insert({
+            couple_id: state.coupleId,
+            name: c.name,
+            type: c.type,
+            color: c.color,
+          })
+          .select("id")
+          .single();
+        if (error) {
+          console.error("[Store] addCategory:", error);
+          return null;
+        }
+        return (data?.id as string) ?? null;
       },
 
       addAccount: async (a) => {
