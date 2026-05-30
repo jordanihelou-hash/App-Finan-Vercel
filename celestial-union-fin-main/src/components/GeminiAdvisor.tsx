@@ -15,6 +15,22 @@ export interface Analysis {
 // ── Local fallback generator (runs synchronously before first server call) ────
 
 function localScore(income: number, expense: number, invested: number): Analysis {
+  // Sem dados ainda: retorna estado neutro/inicial
+  if (income === 0 && expense === 0 && invested === 0) {
+    return {
+      score: 0,
+      status: "Atenção",
+      summary: "Adicione seus lançamentos e contas para receber uma análise personalizada do casal.",
+      critical: [],
+      suggestions: [
+        { title: "Comece pelo básico", detail: "Cadastre suas contas bancárias na aba Contas." },
+        { title: "Registre receitas", detail: "Adicione seu salário e outras entradas na aba Lançar." },
+      ],
+      risks: ["Sem dados históricos não é possível detectar riscos."],
+      goldenTip: "Casais que conversam sobre dinheiro com leveza investem 31% mais ao ano. Registre seus primeiros lançamentos e clique em 'Gerar Nova Análise'.",
+    };
+  }
+
   const ratio = income > 0 ? expense / income : 1;
   const savingsRate = Math.max(0, 1 - ratio);
   const investRatio = invested / Math.max(1, income * 12);
@@ -117,33 +133,41 @@ export function GeminiAdvisor({
       <div className="relative size-40 mx-auto mb-6">
         <svg className="size-40 -rotate-90" viewBox="0 0 100 100">
           <circle cx="50" cy="50" r="40" fill="none" stroke="oklch(1 0 0 / 0.06)" strokeWidth="8" />
-          <circle
-            key={score}
-            cx="50"
-            cy="50"
-            r="40"
-            fill="none"
-            stroke="var(--primary)"
-            strokeWidth="8"
-            strokeLinecap="round"
-            strokeDasharray={circumference}
-            className="animate-score-sweep"
-            style={
-              {
-                ["--score-start" as string]: String(circumference),
-                ["--score-end" as string]: String(offset),
-                filter: "drop-shadow(0 0 8px oklch(0.68 0.22 305 / 0.5))",
-              } as React.CSSProperties
-            }
-          />
+          {score > 0 && (
+            <circle
+              key={score}
+              cx="50"
+              cy="50"
+              r="40"
+              fill="none"
+              stroke="var(--primary)"
+              strokeWidth="8"
+              strokeLinecap="round"
+              strokeDasharray={circumference}
+              className="animate-score-sweep"
+              style={
+                {
+                  ["--score-start" as string]: String(circumference),
+                  ["--score-end" as string]: String(offset),
+                  filter: "drop-shadow(0 0 8px oklch(0.68 0.22 305 / 0.5))",
+                } as React.CSSProperties
+              }
+            />
+          )}
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-4xl font-semibold mono">{score}</span>
-          <span
-            className={`mt-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ring-1 ${statusClass}`}
-          >
-            {analysis.status}
-          </span>
+          {score > 0 ? (
+            <>
+              <span className="text-4xl font-semibold mono">{score}</span>
+              <span className={`mt-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ring-1 ${statusClass}`}>
+                {analysis.status}
+              </span>
+            </>
+          ) : (
+            <span className="text-xs text-muted-foreground text-center px-4 leading-relaxed">
+              Sem dados suficientes
+            </span>
+          )}
         </div>
       </div>
 
