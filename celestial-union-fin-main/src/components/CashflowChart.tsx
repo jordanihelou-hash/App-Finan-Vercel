@@ -125,6 +125,7 @@ function CurrentMonthChart({ data }: { data: DayBucket[] }) {
             monthData.map((d, i) => {
               const ih = (d.income / max) * 100;
               const eh = (d.expense / max) * 100;
+              const hasData = d.income > 0 || d.expense > 0;
               return (
                 <div key={i} className="flex-1 h-full flex flex-col justify-end gap-0.5 group relative">
                   <div className="absolute -top-9 left-1/2 -translate-x-1/2 px-2 py-1 rounded bg-panel ring-1 ring-white/10 text-[10px] mono whitespace-nowrap opacity-0 group-hover:opacity-100 transition pointer-events-none z-10">
@@ -132,14 +133,14 @@ function CurrentMonthChart({ data }: { data: DayBucket[] }) {
                     <div className="text-coral">− {formatBRL(d.expense)}</div>
                   </div>
                   <div
-                    className="w-full bg-emerald/20 border-t-2 border-emerald rounded-t-sm transition-all hover:bg-emerald/35"
-                    style={{ height: `${ih}%` }}
+                    className={`w-full rounded-t-sm transition-all ${ih > 0 ? "bg-emerald/20 border-t-2 border-emerald hover:bg-emerald/35" : "bg-white/5"}`}
+                    style={{ height: `${Math.max(ih > 0 ? 3 : 1, ih)}%` }}
                   />
                   <div
-                    className="w-full bg-coral/20 border-t-2 border-coral rounded-t-sm transition-all hover:bg-coral/35"
-                    style={{ height: `${eh}%` }}
+                    className={`w-full rounded-t-sm transition-all ${eh > 0 ? "bg-coral/20 border-t-2 border-coral hover:bg-coral/35" : "bg-white/5"}`}
+                    style={{ height: `${Math.max(eh > 0 ? 3 : 1, eh)}%` }}
                   />
-                  <span className="text-[8px] text-muted-foreground text-center mono mt-1">{d.label}</span>
+                  <span className={`text-[8px] text-center mono mt-1 ${hasData ? "text-foreground font-semibold" : "text-muted-foreground"}`}>{d.label}</span>
                 </div>
               );
             })
