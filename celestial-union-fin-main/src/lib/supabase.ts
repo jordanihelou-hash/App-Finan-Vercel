@@ -188,46 +188,30 @@ export async function createCouple(userId: string): Promise<string> {
 }
 
 /**
- * Vincula um usuário a um casal existente pelo código de convite.
- * Funciona mesmo se o usuário já tiver um couple_id (desde que seja o único membro do casal atual).
+ * Vincula o usuário logado a um casal existente pelo código de convite.
+ *
+ * Usa a RPC `join_couple_by_code` (security definer) para bypasser o RLS,
+ * que bloquearia a query direta na tabela `couples` — um usuário só consegue
+ * ver o próprio casal pela policy padrão, então buscar pelo código de outro
+ * casal retornaria null sem a RPC.
+ *
  * Retorna o coupleId ou null se o código não existir.
+ * O parâmetro `userId` é mantido por compatibilidade de interface — a função
+ * SQL usa auth.uid() internamente.
  */
 export async function joinCoupleByCode(
-  userId: string,
+  _userId: string,
   code: string
 ): Promise<string | null> {
-  const { data: couple, error } = await supabase
-    .from("couples")
-    .select("id")
-    .eq("code", code.toUpperCase().trim())
-    .maybeSingle();
+  const { data, error } = await supabase.rpc("join_couple_by_code", {
+    invite_code: code,
+  });
 
-  if (error) throw error;
-  if (!couple) return null;
+  if (error) {
+    console.error("[supabase] join_couple_by_code RPC error:", error);
+    throw error;
+  }
 
-  const coupleId: string = couple.id;
-
-  // Evita re-entrar no mesmo casal
-  const { data: existing } = await supabase
-    .from("couple_members")
-    .select("couple_id")
-    .eq("couple_id", coupleId)
-    .eq("user_id", userId)
-    .maybeSingle();
-
-  if (existing) return coupleId; // já é membro
-
-  // Upsert evita duplicatas
-  const { error: memberError } = await supabase
-    .from("couple_members")
-    .upsert({ couple_id: coupleId, user_id: userId });
-  if (memberError) throw memberError;
-
-  const { error: profileError } = await supabase
-    .from("user_profiles")
-    .update({ couple_id: coupleId })
-    .eq("id", userId);
-  if (profileError) throw profileError;
-
-  return coupleId;
+  // RPC retorna uuid ou null
+  return (data as string | null) ?? null;
 }
