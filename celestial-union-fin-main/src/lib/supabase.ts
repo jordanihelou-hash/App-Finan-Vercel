@@ -189,6 +189,7 @@ export async function createCouple(userId: string): Promise<string> {
 
 /**
  * Vincula um usuário a um casal existente pelo código de convite.
+ * Funciona mesmo se o usuário já tiver um couple_id (desde que seja o único membro do casal atual).
  * Retorna o coupleId ou null se o código não existir.
  */
 export async function joinCoupleByCode(
@@ -206,15 +207,27 @@ export async function joinCoupleByCode(
 
   const coupleId: string = couple.id;
 
+  // Evita re-entrar no mesmo casal
+  const { data: existing } = await supabase
+    .from("couple_members")
+    .select("couple_id")
+    .eq("couple_id", coupleId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (existing) return coupleId; // já é membro
+
   // Upsert evita duplicatas
-  await supabase
+  const { error: memberError } = await supabase
     .from("couple_members")
     .upsert({ couple_id: coupleId, user_id: userId });
+  if (memberError) throw memberError;
 
-  await supabase
+  const { error: profileError } = await supabase
     .from("user_profiles")
     .update({ couple_id: coupleId })
     .eq("id", userId);
+  if (profileError) throw profileError;
 
   return coupleId;
 }
