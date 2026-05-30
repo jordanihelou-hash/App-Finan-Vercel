@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useStore } from "@/lib/store";
 import { Sparkles, Loader2, AlertTriangle, Lightbulb, Zap } from "lucide-react";
 
@@ -80,6 +80,17 @@ export function GeminiAdvisor({
     localScore(income, expense, invested)
   );
   const [loading, setLoading] = useState(false);
+
+  // Atualiza a análise local quando os dados carregam (ex: primeira vez com dados reais)
+  useEffect(() => {
+    setAnalysis((prev) => {
+      // Só atualiza se ainda estiver no estado "sem dados" (score 0)
+      if (prev.score === 0 && (income > 0 || expense > 0 || invested > 0)) {
+        return localScore(income, expense, invested);
+      }
+      return prev;
+    });
+  }, [income, expense, invested]);
   const [apiError, setApiError] = useState<string | null>(null);
 
   const regenerate = async () => {
