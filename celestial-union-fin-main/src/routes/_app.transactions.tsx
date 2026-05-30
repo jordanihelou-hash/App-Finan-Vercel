@@ -164,11 +164,13 @@ export function AddTransactionModal({ onClose, onSave, defaultMemberId }: AddTra
           e.preventDefault();
           const v = parseFloat(amount.replace(",", "."));
           if (!description || !v || v <= 0) return;
+          if (!categoryId) return; // guard: não salva sem categoria válida
+          if (!accountId) return; // guard: não salva sem conta válida
           // Interpreta a data como meio-dia no horário local para evitar off-by-one
           const isoDate = new Date(`${date}T12:00:00`).toISOString();
           onSave({
             description, amount: v, date: isoDate,
-            type, categoryId, accountId: accountId || "", memberId,
+            type, categoryId, accountId, memberId,
           });
           onClose();
         }}
@@ -216,7 +218,9 @@ export function AddTransactionModal({ onClose, onSave, defaultMemberId }: AddTra
             <AddInlineCategory
               type={type}
               onSave={async (c) => {
-                await addCategory(c);
+                // Usa o ID retornado para selecionar automaticamente a nova categoria
+                const newId = await addCategory(c);
+                if (newId) setCategoryId(newId);
                 setShowInlineCat(false);
               }}
               onCancel={() => setShowInlineCat(false)}
@@ -259,7 +263,16 @@ export function AddTransactionModal({ onClose, onSave, defaultMemberId }: AddTra
           </div>
         </Field>
 
-        <button type="submit" className="w-full py-3 bg-primary text-primary-foreground font-semibold text-sm rounded-xl glow-violet">
+        {!categoryId && cats.length === 0 && (
+          <p className="text-[11px] text-amber p-2.5 bg-amber/10 ring-1 ring-amber/20 rounded-lg">
+            Nenhuma categoria disponível. Crie uma antes de salvar.
+          </p>
+        )}
+        <button
+          type="submit"
+          disabled={!categoryId || !accountId}
+          className="w-full py-3 bg-primary text-primary-foreground font-semibold text-sm rounded-xl glow-violet disabled:opacity-50"
+        >
           Salvar Lançamento
         </button>
       </form>
