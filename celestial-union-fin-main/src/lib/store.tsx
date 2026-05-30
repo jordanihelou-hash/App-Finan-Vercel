@@ -128,10 +128,12 @@ const initialState: State = {
 interface StoreApi {
   state: State;
   addTransaction: (tx: Omit<Transaction, "id">) => void;
+  deleteTransaction: (id: string) => Promise<void>;
   /** Retorna o ID da nova categoria criada, ou null em caso de erro */
   addCategory: (c: Omit<Category, "id">) => Promise<string | null>;
   addAccount: (a: Omit<Account, "id">) => void;
   addInvestment: (inv: Omit<Investment, "id" | "moves">) => void;
+  deleteInvestment: (id: string) => Promise<void>;
   transferBetween: (fromId: string, toId: string, amount: number) => void;
   addInvestmentMove: (
     investmentId: string,
@@ -509,6 +511,37 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             .update({ balance: account.balance + delta })
             .eq("id", tx.accountId);
         }
+
+        // Refetch imediato — não espera Realtime
+        await Promise.all([
+          refetchTransactions(state.coupleId),
+          refetchAccounts(state.coupleId),
+        ]);
+      },
+
+      deleteTransaction: async (id: string) => {
+        if (!state.coupleId) return;
+        // Restaura saldo da conta antes de deletar
+        const tx = state.transactions.find((t) => t.id === id);
+        if (tx?.accountId) {
+          const account = state.accounts.find((a) => a.id === tx.accountId);
+          if (account) {
+            const delta = tx.type === "income" ? -tx.amount : tx.amount;
+            await supabase
+              .from("accounts")
+              .update({ balance: account.balance + delta })
+              .eq("id", tx.accountId);
+          }
+        }
+        const { error } = await supabase.from("transactions").delete().eq("id", id);
+        if (error) {
+          console.error("[Store] deleteTransaction:", error);
+          return;
+        }
+        await Promise.all([
+          refetchTransactions(state.coupleId),
+          refetchAccounts(state.coupleId),
+        ]);
       },
 
       addCategory: async (c): Promise<string | null> => {
@@ -540,7 +573,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           member_id: a.memberId,
           brand: a.brand ?? null,
         });
-        if (error) console.error("[Store] addAccount:", error);
+        if (error) {
+          console.error("[Store] addAccount:", error);
+          return;
+        }
+        await refetchAccounts(state.coupleId);
       },
 
       addInvestment: async (inv) => {
@@ -553,7 +590,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           applied: inv.applied ?? 0,
           projected_yield: inv.projectedYield ?? 0,
         });
-        if (error) console.error("[Store] addInvestment:", error);
+        if (error) {
+          console.error("[Store] addInvestment:", error);
+          return;
+        }
+        await refetchInvestments(state.coupleId);
+      },
+
+      deleteInvestment: async (id: string) => {
+        if (!state.coupleId) return;
+        // Remove movimentos primeiro (FK constraint)
+        await supabase.from("investment_moves").delete().eq("investment_id", id);
+        const { error } = await supabase.from("investments").delete().eq("id", id);
+        if (error) {
+          console.error("[Store] deleteInvestment:", error);
+          return;
+        }
+        await refetchInvestments(state.coupleId);
       },
 
       transferBetween: async (fromId, toId, amount) => {
@@ -596,6 +649,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             .update({ applied: newApplied })
             .eq("id", investmentId),
         ]);
+        await refetchInvestments(state.coupleId);
       },
 
       joinCouple: async (code: string): Promise<boolean> => {
