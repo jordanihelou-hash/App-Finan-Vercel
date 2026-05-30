@@ -250,18 +250,28 @@ function MoveModal({
   const { addInvestmentMove } = useStore();
   const [amount, setAmount] = useState("");
 
+  const numericValue = parseFloat(amount.replace(",", ".")) || 0;
+  const isResgate = data.kind === "resgate";
+  // Validação: resgate não pode ultrapassar o valor aplicado
+  const exceedsApplied = isResgate && numericValue > data.inv.applied;
+  const isInvalid = !numericValue || numericValue <= 0 || exceedsApplied;
+
   return (
-    <Sheet onClose={onClose} title={`${data.kind === "aporte" ? "Aporte" : "Resgate"} — ${data.inv.name}`}>
+    <Sheet onClose={onClose} title={`${isResgate ? "Resgate" : "Aporte"} — ${data.inv.name}`}>
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          const v = parseFloat(amount.replace(",", "."));
-          if (!v || v <= 0) return;
-          addInvestmentMove(data.inv.id, { kind: data.kind, amount: v });
+          if (isInvalid) return;
+          addInvestmentMove(data.inv.id, { kind: data.kind, amount: numericValue });
           onClose();
         }}
         className="space-y-4"
       >
+        {isResgate && (
+          <div className="p-3 bg-white/5 rounded-lg text-[11px] text-muted-foreground">
+            Disponível para resgate: <span className="mono text-foreground font-medium">{formatBRL(data.inv.applied)}</span>
+          </div>
+        )}
         <label className="block">
           <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1.5 block">Valor (R$)</span>
           <input
@@ -270,18 +280,22 @@ function MoveModal({
             onChange={(e) => setAmount(e.target.value)}
             inputMode="decimal"
             placeholder="0,00"
-            className={inputCls + " mono"}
+            className={inputCls + " mono" + (exceedsApplied ? " ring-coral/60" : "")}
           />
         </label>
+        {exceedsApplied && (
+          <p className="text-[11px] text-coral p-2.5 bg-coral/10 ring-1 ring-coral/20 rounded-lg">
+            Valor supera o saldo aplicado ({formatBRL(data.inv.applied)}). Reduza o valor para continuar.
+          </p>
+        )}
         <button
           type="submit"
-          className={`w-full py-3 font-semibold text-sm rounded-xl ${
-            data.kind === "aporte"
-              ? "bg-emerald text-background"
-              : "bg-coral text-background"
+          disabled={isInvalid}
+          className={`w-full py-3 font-semibold text-sm rounded-xl disabled:opacity-50 ${
+            isResgate ? "bg-coral text-background" : "bg-emerald text-background"
           }`}
         >
-          Confirmar {data.kind === "aporte" ? "aporte" : "resgate"}
+          Confirmar {isResgate ? "resgate" : "aporte"}
         </button>
       </form>
     </Sheet>
