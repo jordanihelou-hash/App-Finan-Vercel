@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { AppHeader } from "@/components/AppHeader";
 import { useStore, formatBRL } from "@/lib/store";
-import { Plus, Search, X, ArrowUpRight, ArrowDownRight, Tag } from "lucide-react";
+import { Search, X, ArrowUpRight, ArrowDownRight, Plus } from "lucide-react";
 
 export const Route = createFileRoute("/_app/transactions")({
   component: TransactionsPage,
@@ -12,7 +12,6 @@ function TransactionsPage() {
   const { state, addTransaction, addCategory } = useStore();
   const [view, setView] = useState<"unified" | "individual">("unified");
   const [query, setQuery] = useState("");
-  const [showAdd, setShowAdd] = useState(false);
   const [showCat, setShowCat] = useState(false);
 
   const filtered = useMemo(() => {
@@ -34,19 +33,8 @@ function TransactionsPage() {
 
   return (
     <>
-      <AppHeader
-        view={view}
-        onViewChange={setView}
-        rightSlot={
-          <button
-            onClick={() => setShowAdd(true)}
-            aria-label="Novo lançamento"
-            className="size-10 grid place-items-center bg-primary text-primary-foreground rounded-xl ring-1 ring-primary shadow-[0_4px_14px_-2px_oklch(0.68_0.22_305/0.45)] active:scale-95 transition"
-          >
-            <Plus className="size-5" />
-          </button>
-        }
-      />
+      {/* FAB global está no layout — sem botão no rightSlot */}
+      <AppHeader view={view} onViewChange={setView} />
 
       <div className="glass-card ring-1 ring-white/10 ring-inset-soft rounded-2xl px-4 py-3 flex items-center gap-3">
         <Search className="size-4 text-muted-foreground shrink-0" />
@@ -56,13 +44,17 @@ function TransactionsPage() {
           placeholder="Buscar descrição ou categoria…"
           className="flex-1 bg-transparent outline-none text-sm placeholder:text-muted-foreground min-w-0"
         />
+        {query && (
+          <button onClick={() => setQuery("")}>
+            <X className="size-4 text-muted-foreground" />
+          </button>
+        )}
       </div>
 
       <div className="flex items-center justify-between -mb-1">
-        <h2 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">Lançamentos</h2>
-        <button onClick={() => setShowCat(true)} className="text-[11px] text-primary font-medium flex items-center gap-1">
-          <Tag className="size-3" /> Nova categoria
-        </button>
+        <h2 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
+          {view === "individual" ? "Meus Lançamentos" : "Lançamentos do Casal"}
+        </h2>
       </div>
 
       <div className="flex flex-col gap-2 animate-fade-up">
@@ -110,10 +102,15 @@ function TransactionsPage() {
               </div>
             );
           })}
+          <button
+            onClick={() => setShowCat(true)}
+            className="mt-1 w-full flex items-center gap-1.5 text-[11px] text-primary font-medium py-1"
+          >
+            <Plus className="size-3" /> Nova categoria
+          </button>
         </div>
       </div>
 
-      {showAdd && <AddTransactionModal onClose={() => setShowAdd(false)} onSave={addTransaction} />}
       {showCat && <AddCategoryModal onClose={() => setShowCat(false)} onSave={addCategory} />}
     </>
   );
@@ -123,16 +120,41 @@ function dotColor(c: string) {
   return c === "emerald" ? "bg-emerald" : c === "coral" ? "bg-coral" : c === "amber" ? "bg-amber" : c === "cyan" ? "bg-cyan" : "bg-primary";
 }
 
-export function AddTransactionModal({ onClose, onSave }: { onClose: () => void; onSave: ReturnType<typeof useStore>["addTransaction"] }) {
-  const { state } = useStore();
+// ── Estilo base para inputs e selects ────────────────────────────────────────
+/**
+ * Usa fundo explícito em vez de bg-white/5 (que é quase transparente e pode
+ * causar texto branco-sobre-branco em selects nativos em alguns browsers).
+ */
+const inputCls = "w-full bg-[oklch(0.17_0.05_290)] ring-1 ring-white/10 rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-primary/50 transition-all text-foreground";
+
+// ── AddTransactionModal ───────────────────────────────────────────────────────
+
+interface AddTransactionProps {
+  onClose: () => void;
+  onSave: ReturnType<typeof useStore>["addTransaction"];
+  /** Pré-seleciona o membro (ex: modo individual) */
+  defaultMemberId?: string;
+}
+
+export function AddTransactionModal({ onClose, onSave, defaultMemberId }: AddTransactionProps) {
+  const { state, addCategory } = useStore();
   const [type, setType] = useState<"income" | "expense">("expense");
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
   const [categoryId, setCategoryId] = useState(state.categories.find((c) => c.type === "expense")?.id ?? "");
   const [accountId, setAccountId] = useState(state.accounts[0]?.id ?? "");
-  const [memberId, setMemberId] = useState(state.members[0]?.id ?? "");
+  const [memberId, setMemberId] = useState(defaultMemberId ?? state.members[0]?.id ?? "");
+  const [showInlineCat, setShowInlineCat] = useState(false);
 
   const cats = state.categories.filter((c) => c.type === type);
+
+  function handleCategoryChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    if (e.target.value === "__new__") {
+      setShowInlineCat(true);
+    } else {
+      setCategoryId(e.target.value);
+    }
+  }
 
   return (
     <Sheet onClose={onClose} title="Novo Lançamento">
@@ -149,12 +171,17 @@ export function AddTransactionModal({ onClose, onSave }: { onClose: () => void; 
         }}
         className="space-y-4"
       >
+        {/* Tipo */}
         <div className="flex gap-2 p-1 bg-white/5 rounded-lg">
           {(["expense", "income"] as const).map((t) => (
             <button
               key={t} type="button"
-              onClick={() => { setType(t); setCategoryId(state.categories.find((c) => c.type === t)?.id ?? ""); }}
-              className={`flex-1 py-2 rounded-md text-xs font-medium ${
+              onClick={() => {
+                setType(t);
+                setCategoryId(state.categories.find((c) => c.type === t)?.id ?? "");
+                setShowInlineCat(false);
+              }}
+              className={`flex-1 py-2 rounded-md text-xs font-medium transition-all ${
                 type === t ? (t === "income" ? "bg-emerald/20 text-emerald" : "bg-coral/20 text-coral") : "text-muted-foreground"
               }`}
             >
@@ -171,17 +198,34 @@ export function AddTransactionModal({ onClose, onSave }: { onClose: () => void; 
           <input className={inputCls + " mono"} value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0,00" inputMode="decimal" />
         </Field>
 
+        {/* Categoria com opção de adicionar nova inline */}
         <Field label="Categoria">
-          <select className={inputCls} value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-            {cats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
+          {showInlineCat ? (
+            <AddInlineCategory
+              type={type}
+              onSave={async (c) => {
+                await addCategory(c);
+                setShowInlineCat(false);
+              }}
+              onCancel={() => setShowInlineCat(false)}
+            />
+          ) : (
+            <select className={inputCls} value={categoryId} onChange={handleCategoryChange}>
+              {cats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              <option value="__new__">+ Adicionar categoria…</option>
+            </select>
+          )}
         </Field>
+
+        {/* Conta */}
         <Field label="Conta">
           <select className={inputCls} value={accountId} onChange={(e) => setAccountId(e.target.value)}>
             {state.accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
           </select>
+          <p className="text-[10px] text-muted-foreground mt-1">Para adicionar contas, acesse a aba Contas.</p>
         </Field>
 
+        {/* Parceiro */}
         <Field label="Parceiro">
           <div className="flex gap-2">
             {state.members.map((m) => (
@@ -204,6 +248,55 @@ export function AddTransactionModal({ onClose, onSave }: { onClose: () => void; 
     </Sheet>
   );
 }
+
+/** Mini-formulário inline para criar nova categoria dentro do modal */
+function AddInlineCategory({
+  type,
+  onSave,
+  onCancel,
+}: {
+  type: "income" | "expense";
+  onSave: (c: { name: string; type: "income" | "expense"; color: "violet" | "emerald" | "coral" | "amber" | "cyan" }) => void;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [color, setColor] = useState<"violet" | "emerald" | "coral" | "amber" | "cyan">("violet");
+
+  return (
+    <div className="space-y-2 p-3 bg-white/5 rounded-lg ring-1 ring-primary/20">
+      <p className="text-[10px] uppercase tracking-wider text-primary font-semibold">Nova categoria</p>
+      <input
+        className={inputCls}
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="Nome da categoria"
+        autoFocus
+      />
+      <div className="flex gap-2 items-center">
+        {(["violet", "emerald", "coral", "amber", "cyan"] as const).map((c) => (
+          <button
+            key={c} type="button" onClick={() => setColor(c)}
+            className={`size-7 rounded-full ${dotColor(c)} ring-2 transition-all ${color === c ? "ring-white scale-110" : "ring-transparent"}`}
+          />
+        ))}
+      </div>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={() => { if (name.trim()) onSave({ name: name.trim(), type, color }); }}
+          className="flex-1 py-2 bg-primary/20 text-primary rounded-lg text-xs font-medium"
+        >
+          Criar
+        </button>
+        <button type="button" onClick={onCancel} className="flex-1 py-2 bg-white/5 text-muted-foreground rounded-lg text-xs">
+          Cancelar
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── AddCategoryModal ──────────────────────────────────────────────────────────
 
 function AddCategoryModal({ onClose, onSave }: { onClose: () => void; onSave: ReturnType<typeof useStore>["addCategory"] }) {
   const [name, setName] = useState("");
@@ -241,7 +334,7 @@ function AddCategoryModal({ onClose, onSave }: { onClose: () => void; onSave: Re
   );
 }
 
-const inputCls = "w-full bg-white/5 ring-1 ring-white/10 rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-primary/50 transition-all";
+// ── Shared helpers ────────────────────────────────────────────────────────────
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
