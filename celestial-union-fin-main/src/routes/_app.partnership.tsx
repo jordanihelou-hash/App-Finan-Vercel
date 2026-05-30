@@ -51,13 +51,22 @@ function PartnershipPage() {
             {copied ? <><Check className="size-4" /> Copiado</> : <><Copy className="size-4" /> Copiar código</>}
           </button>
 
-          <div className="mt-4 flex items-center gap-2 text-[11px] text-emerald">
-            <span className="relative flex size-1.5">
-              <span className="absolute inset-0 rounded-full bg-emerald animate-ping opacity-60" />
-              <span className="relative rounded-full size-1.5 bg-emerald" />
-            </span>
-            Parceiro vinculado — sincronizando em tempo real
-          </div>
+          {state.partnerLinked ? (
+            <div className="mt-4 flex items-center gap-2 text-[11px] text-emerald">
+              <span className="relative flex size-1.5">
+                <span className="absolute inset-0 rounded-full bg-emerald animate-ping opacity-60" />
+                <span className="relative rounded-full size-1.5 bg-emerald" />
+              </span>
+              Parceiro vinculado — sincronizando em tempo real
+            </div>
+          ) : (
+            <div className="mt-4 flex items-center gap-2 text-[11px] text-muted-foreground">
+              <span className="relative flex size-1.5">
+                <span className="relative rounded-full size-1.5 bg-amber" />
+              </span>
+              Aguardando parceiro — compartilhe o código acima
+            </div>
+          )}
         </div>
       </div>
 
