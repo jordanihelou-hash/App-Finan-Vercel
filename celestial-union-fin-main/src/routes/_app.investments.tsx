@@ -23,7 +23,6 @@ const typeColor: Record<Investment["type"], string> = {
 
 function InvestmentsPage() {
   const { state } = useStore();
-  const [view, setView] = useState<"unified" | "individual">("unified");
   const [filter, setFilter] = useState<Investment["type"] | "Todos">("Todos");
   const [activeMove, setActiveMove] = useState<{ inv: Investment; kind: "aporte" | "resgate" } | null>(null);
   const [showAddInv, setShowAddInv] = useState(false);
@@ -38,8 +37,9 @@ function InvestmentsPage() {
   return (
     <>
       <AppHeader
-        view={view}
-        onViewChange={setView}
+        view="unified"
+        onViewChange={() => {}}
+        hideToggle
         rightSlot={
           <button
             onClick={() => setShowAddInv(true)}
