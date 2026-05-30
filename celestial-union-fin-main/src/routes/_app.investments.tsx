@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { AppHeader } from "@/components/AppHeader";
 import { useStore, formatBRL } from "@/lib/store";
-import { TrendingUp, Plus, Minus } from "lucide-react";
+import { TrendingUp, Plus, Minus, Trash2 } from "lucide-react";
 import type { Investment } from "@/lib/mock-data";
 import { Sheet } from "./_app.transactions";
 
@@ -22,10 +22,11 @@ const typeColor: Record<Investment["type"], string> = {
 };
 
 function InvestmentsPage() {
-  const { state } = useStore();
+  const { state, deleteInvestment } = useStore();
   const [filter, setFilter] = useState<Investment["type"] | "Todos">("Todos");
   const [activeMove, setActiveMove] = useState<{ inv: Investment; kind: "aporte" | "resgate" } | null>(null);
   const [showAddInv, setShowAddInv] = useState(false);
+  const [confirmDeleteInv, setConfirmDeleteInv] = useState<Investment | null>(null);
 
   const total = state.investments.reduce((s, i) => s + i.applied, 0);
   const filtered = filter === "Todos" ? state.investments : state.investments.filter((i) => i.type === filter);
@@ -163,6 +164,13 @@ function InvestmentsPage() {
               >
                 <Minus className="size-3.5" /> Resgate
               </button>
+              <button
+                onClick={() => setConfirmDeleteInv(inv)}
+                aria-label="Excluir investimento"
+                className="size-8 rounded-lg grid place-items-center bg-white/5 text-muted-foreground ring-1 ring-white/10 hover:bg-coral/15 hover:text-coral hover:ring-coral/30 active:scale-95 transition"
+              >
+                <Trash2 className="size-3.5" />
+              </button>
             </div>
           </div>
         ))}
@@ -170,6 +178,36 @@ function InvestmentsPage() {
 
       {activeMove && <MoveModal data={activeMove} onClose={() => setActiveMove(null)} />}
       {showAddInv && <AddInvestmentModal onClose={() => setShowAddInv(false)} />}
+
+      {confirmDeleteInv && (
+        <Sheet onClose={() => setConfirmDeleteInv(null)} title="Excluir investimento">
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Tem certeza que deseja excluir <span className="text-foreground font-medium">"{confirmDeleteInv.name}"</span>?
+              <span className="block mt-1 text-[11px] text-amber">
+                ⚠ Todos os movimentos (aportes e resgates) também serão excluídos.
+              </span>
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setConfirmDeleteInv(null)}
+                className="flex-1 py-2.5 rounded-xl text-sm font-medium bg-white/5 ring-1 ring-white/10 text-muted-foreground"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={async () => {
+                  await deleteInvestment(confirmDeleteInv.id);
+                  setConfirmDeleteInv(null);
+                }}
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-coral/20 text-coral ring-1 ring-coral/30"
+              >
+                Excluir
+              </button>
+            </div>
+          </div>
+        </Sheet>
+      )}
     </>
   );
 }
@@ -183,16 +221,18 @@ function AddInvestmentModal({ onClose }: { onClose: () => void }) {
   const [type, setType] = useState<Investment["type"]>("Renda Fixa");
   const [applied, setApplied] = useState("");
   const [projectedYield, setProjectedYield] = useState("");
+  const [saving, setSaving] = useState(false);
 
   return (
     <Sheet onClose={onClose} title="Novo Investimento">
       <form
-        onSubmit={(e) => {
+        onSubmit={async (e) => {
           e.preventDefault();
-          if (!name.trim()) return;
+          if (!name.trim() || saving) return;
+          setSaving(true);
           const ap = parseFloat(applied.replace(",", ".")) || 0;
           const py = parseFloat(projectedYield.replace(",", ".")) || 0;
-          addInvestment({
+          await addInvestment({
             name: name.trim(),
             ticker: ticker.trim() || undefined,
             type,
@@ -230,8 +270,13 @@ function AddInvestmentModal({ onClose }: { onClose: () => void }) {
           <input className={inputCls + " mono"} value={projectedYield} onChange={(e) => setProjectedYield(e.target.value)} placeholder="Ex: 12.5" inputMode="decimal" />
         </label>
 
-        <button type="submit" className="w-full py-3 bg-primary text-primary-foreground font-semibold text-sm rounded-xl glow-violet">
-          Adicionar Investimento
+        <button
+          type="submit"
+          disabled={saving || !name.trim()}
+          className="w-full py-3 bg-primary text-primary-foreground font-semibold text-sm rounded-xl glow-violet disabled:opacity-60 flex items-center justify-center gap-2"
+        >
+          {saving && <span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
+          {saving ? "Salvando…" : "Adicionar Investimento"}
         </button>
       </form>
     </Sheet>
