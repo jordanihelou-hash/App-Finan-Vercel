@@ -141,6 +141,7 @@ export function AddTransactionModal({ onClose, onSave, defaultMemberId }: AddTra
   const [type, setType] = useState<"income" | "expense">("expense");
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [categoryId, setCategoryId] = useState(state.categories.find((c) => c.type === "expense")?.id ?? "");
   const [accountId, setAccountId] = useState(state.accounts[0]?.id ?? "");
   const [memberId, setMemberId] = useState(defaultMemberId ?? state.members[0]?.id ?? "");
@@ -163,9 +164,10 @@ export function AddTransactionModal({ onClose, onSave, defaultMemberId }: AddTra
           e.preventDefault();
           const v = parseFloat(amount.replace(",", "."));
           if (!description || !v || v <= 0) return;
-          // Se não há conta selecionada, usa string vazia (será tratado pelo backend)
+          // Interpreta a data como meio-dia no horário local para evitar off-by-one
+          const isoDate = new Date(`${date}T12:00:00`).toISOString();
           onSave({
-            description, amount: v, date: new Date().toISOString(),
+            description, amount: v, date: isoDate,
             type, categoryId, accountId: accountId || "", memberId,
           });
           onClose();
@@ -197,6 +199,15 @@ export function AddTransactionModal({ onClose, onSave, defaultMemberId }: AddTra
 
         <Field label="Valor (R$)">
           <input className={inputCls + " mono"} value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0,00" inputMode="decimal" />
+        </Field>
+
+        <Field label="Data">
+          <input
+            type="date"
+            className={inputCls + " [color-scheme:dark]"}
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+          />
         </Field>
 
         {/* Categoria com opção de adicionar nova inline */}
