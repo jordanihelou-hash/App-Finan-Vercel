@@ -3,18 +3,36 @@ import { useState } from "react";
 import { AppHeader } from "@/components/AppHeader";
 import { useStore } from "@/lib/store";
 import { UserProfileModal } from "@/components/UserProfileModal";
-import { Copy, Check, Link2, Shield, RefreshCw, LogOut, User } from "lucide-react";
+import { Copy, Check, Link2, Shield, RefreshCw, LogOut, User, Sparkles, Loader2 } from "lucide-react";
 
 export const Route = createFileRoute("/_app/partnership")({
   component: PartnershipPage,
 });
 
 function PartnershipPage() {
-  const { state, logout, regenerateCode } = useStore();
+  const { state, logout, regenerateCode, joinCouple } = useStore();
   const [view, setView] = useState<"unified" | "individual">("unified");
   const [copied, setCopied] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [confirmLogout, setConfirmLogout] = useState(false);
+  const [joinCode, setJoinCode] = useState("");
+  const [joinLoading, setJoinLoading] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
+  const [joinSuccess, setJoinSuccess] = useState(false);
+
+  const handleJoin = async () => {
+    if (!joinCode.trim()) return;
+    setJoinLoading(true);
+    setJoinError(null);
+    const ok = await joinCouple(joinCode.trim());
+    if (ok) {
+      setJoinSuccess(true);
+      setJoinCode("");
+    } else {
+      setJoinError("Código inválido ou não encontrado. Verifique e tente novamente.");
+    }
+    setJoinLoading(false);
+  };
 
   const copy = () => {
     navigator.clipboard?.writeText(state.coupleCode);
@@ -69,6 +87,47 @@ function PartnershipPage() {
           )}
         </div>
       </div>
+
+      {/* Vincular a um parceiro existente (sem parceiro vinculado) */}
+      {!state.partnerLinked && (
+        <div className="glass-card ring-1 ring-white/10 ring-inset-soft rounded-2xl p-6 animate-fade-up">
+          <div className="flex items-center gap-2 mb-2">
+            <Link2 className="size-3.5 text-cyan" />
+            <span className="text-[10px] uppercase tracking-widest font-bold text-cyan">Entrar em um casal</span>
+          </div>
+          <p className="text-xs text-muted-foreground mb-4">
+            Já tem o código do seu parceiro? Insira abaixo para vincular as contas agora mesmo.
+          </p>
+          {joinSuccess ? (
+            <div className="flex items-center gap-2 text-[12px] text-emerald p-3 bg-emerald/10 rounded-xl ring-1 ring-emerald/20">
+              <Check className="size-4" /> Vinculado com sucesso! Seus dados estão sincronizados.
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center gap-2 bg-background/60 ring-1 ring-white/10 rounded-xl px-4 py-3 focus-within:ring-primary/50 transition mb-3">
+                <Sparkles className="size-4 text-muted-foreground shrink-0" />
+                <input
+                  value={joinCode}
+                  onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
+                  placeholder="JOIN-XXXX"
+                  className="bg-transparent flex-1 outline-none text-sm mono tracking-widest uppercase"
+                  maxLength={9}
+                />
+              </div>
+              {joinError && (
+                <p className="text-[11px] text-coral mb-2 p-2.5 bg-coral/10 ring-1 ring-coral/20 rounded-lg">{joinError}</p>
+              )}
+              <button
+                onClick={handleJoin}
+                disabled={joinLoading || !joinCode.trim()}
+                className="w-full py-3 rounded-xl bg-cyan/20 text-cyan ring-1 ring-cyan/30 font-semibold text-sm flex items-center justify-center gap-2 disabled:opacity-60 hover:bg-cyan/30 transition"
+              >
+                {joinLoading ? <><Loader2 className="size-3.5 animate-spin" /> Vinculando…</> : <><Link2 className="size-3.5" /> Vincular ao parceiro</>}
+              </button>
+            </>
+          )}
+        </div>
+      )}
 
       {/* Privacidade */}
       <div className="glass-card ring-1 ring-white/10 ring-inset-soft rounded-2xl p-5 animate-fade-up">
