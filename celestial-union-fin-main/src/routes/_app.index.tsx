@@ -94,11 +94,26 @@ function Dashboard() {
 
 function IndividualView() {
   const { state } = useStore();
+  // Filtro de mês atual (consistente com os KPIs do topo)
+  const monthStart = useMemo(() => {
+    const d = new Date();
+    d.setDate(1);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }, []);
+
+  const now = new Date();
+
   return (
     <div className="flex flex-col gap-3 animate-fade-up">
-      <h2 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">Resumo por membro</h2>
+      <h2 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">Resumo por membro — mês atual</h2>
       {state.members.map((m) => {
-        const tx = state.transactions.filter((t) => t.memberId === m.id);
+        // Só transações do mês atual
+        const tx = state.transactions.filter((t) => {
+          if (t.memberId !== m.id) return false;
+          const td = new Date(t.date);
+          return td >= monthStart && td.getMonth() === now.getMonth() && td.getFullYear() === now.getFullYear();
+        });
         const income = tx.filter((t) => t.type === "income").reduce((s, t) => s + t.amount, 0);
         const expense = tx.filter((t) => t.type === "expense").reduce((s, t) => s + t.amount, 0);
         const balance = state.accounts.filter((a) => a.memberId === m.id).reduce((s, a) => s + a.balance, 0);
