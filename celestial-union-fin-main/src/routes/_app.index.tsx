@@ -42,16 +42,19 @@ function Dashboard() {
   const total = baseAccounts.reduce((s, a) => s + a.balance, 0);
   const invested = state.investments.reduce((s, i) => s + i.applied, 0);
 
+  // Dados do mês atual (dia a dia)
   const chartData = useMemo(() => {
+    const now = new Date();
+    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
     const days: { label: string; income: number; expense: number; date: Date }[] = [];
-    for (let i = 13; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
+    for (let i = 1; i <= daysInMonth; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth(), i);
       d.setHours(0, 0, 0, 0);
-      days.push({ label: String(d.getDate()).padStart(2, "0"), income: 0, expense: 0, date: d });
+      days.push({ label: String(i).padStart(2, "0"), income: 0, expense: 0, date: d });
     }
     baseTx.forEach((t) => {
       const td = new Date(t.date);
+      if (td.getMonth() !== now.getMonth() || td.getFullYear() !== now.getFullYear()) return;
       td.setHours(0, 0, 0, 0);
       const bucket = days.find((b) => b.date.getTime() === td.getTime());
       if (bucket) {
@@ -76,7 +79,11 @@ function Dashboard() {
         <KpiCard label="Despesas" value={expense} accent="coral" trend={expensePct} />
       </div>
 
-      <CashflowChart data={chartData} />
+      <CashflowChart
+        data={chartData}
+        allTransactions={baseTx.map((t) => ({ date: t.date, type: t.type, amount: t.amount }))}
+        totalBalance={total}
+      />
 
       {view === "individual" && state.members.length > 0 && <IndividualView />}
 
