@@ -137,6 +137,8 @@ interface StoreApi {
     move: { kind: "aporte" | "resgate"; amount: number }
   ) => void;
   regenerateCode: () => void;
+  /** Vincula o usuário logado a um casal pelo código de convite. Retorna true se bem-sucedido. */
+  joinCouple: (code: string) => Promise<boolean>;
   /** @deprecated mantido por compatibilidade de interface */
   login: (email: string) => void;
   logout: () => void;
@@ -273,16 +275,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             ? sessionStorage.getItem("pending_join_code")
             : null;
 
-        if (pendingCode && !profile.couple_id) {
-          // Tenta vincular ao casal do parceiro
+        if (pendingCode) {
+          // Tenta vincular ao casal do parceiro (funciona mesmo se já tiver couple_id próprio)
           const joined = await joinCoupleByCode(user.id, pendingCode);
           if (joined) {
             profile = { ...profile, couple_id: joined };
-          } else {
-            // Código inválido → cria casal próprio
+          } else if (!profile.couple_id) {
+            // Código inválido e sem casal → cria casal próprio
             console.warn("[Store] Código de convite inválido:", pendingCode);
             const coupleId = await createCouple(user.id);
             profile = { ...profile, couple_id: coupleId };
+          } else {
+            console.warn("[Store] Código de convite inválido, mantendo casal existente:", pendingCode);
           }
           sessionStorage.removeItem("pending_join_code");
         } else if (!profile.couple_id) {
@@ -583,6 +587,46 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             .update({ applied: newApplied })
             .eq("id", investmentId),
         ]);
+      },
+
+      joinCouple: async (code: string): Promise<boolean> => {
+        if (!state.currentUserId) return false;
+        try {
+          const joined = await joinCoupleByCode(state.currentUserId, code);
+          if (!joined) return false;
+          // Recarrega os membros do novo casal
+          const { data: cmData } = await supabase
+            .from("couple_members")
+            .select("user_id")
+            .eq("couple_id", joined);
+          const ids = (cmData ?? []).map((r) => r.user_id as string);
+          const { data: profilesData } = await supabase
+            .from("user_profiles")
+            .select("id, name, avatar_color, initial")
+            .in("id", ids);
+          const members: Member[] = (profilesData ?? []).map((p) => ({
+            id: p.id as string,
+            name: p.name as string,
+            avatarColor: p.avatar_color as string,
+            initial: p.initial as string,
+          }));
+          const { data: coupleRow } = await supabase
+            .from("couples")
+            .select("code")
+            .eq("id", joined)
+            .single();
+          setState((s) => ({
+            ...s,
+            coupleId: joined,
+            coupleCode: coupleRow?.code ?? s.coupleCode,
+            members,
+            partnerLinked: members.length >= 2,
+          }));
+          return true;
+        } catch (err) {
+          console.error("[Store] joinCouple:", err);
+          return false;
+        }
       },
 
       regenerateCode: async () => {
