@@ -36,16 +36,22 @@ function AuthGuard() {
     }
   }, [state.authState, navigate]);
 
-  // Exibe modal de perfil na primeira vez que o usuário faz login
+  // Exibe modal de perfil apenas se o usuário não tem nome cadastrado
+  // (primeiro acesso real). Usa state.members como fonte de verdade;
+  // o localStorage só serve para evitar o flash antes dos membros carregarem.
   useEffect(() => {
     if (
       state.authState === "authenticated" &&
       state.currentUserId &&
-      !isProfileComplete(state.currentUserId)
+      state.members.length > 0
     ) {
-      setShowProfile(true);
+      const member = state.members.find((m) => m.id === state.currentUserId);
+      const hasName = member?.name?.trim();
+      if (!hasName && !isProfileComplete(state.currentUserId)) {
+        setShowProfile(true);
+      }
     }
-  }, [state.authState, state.currentUserId]);
+  }, [state.authState, state.currentUserId, state.members]);
 
   if (state.authState === "loading") {
     return (
