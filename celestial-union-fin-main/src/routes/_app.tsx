@@ -1,8 +1,10 @@
 import { createFileRoute, Outlet, useNavigate } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { BottomNav } from "@/components/BottomNav";
 import { StoreProvider, useStore } from "@/lib/store";
-import { Loader2 } from "lucide-react";
+import { Loader2, Plus } from "lucide-react";
+import { AddTransactionModal } from "./_app.transactions";
+import { UserProfileModal, isProfileComplete } from "@/components/UserProfileModal";
 
 export const Route = createFileRoute("/_app")({
   component: AppLayout,
@@ -23,14 +25,27 @@ function AppLayout() {
  * - 'authenticated'    → render app shell + outlet
  */
 function AuthGuard() {
-  const { state } = useStore();
+  const { state, addTransaction } = useStore();
   const navigate = useNavigate();
+  const [showAdd, setShowAdd] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
 
   useEffect(() => {
     if (state.authState === "unauthenticated") {
       navigate({ to: "/login" });
     }
   }, [state.authState, navigate]);
+
+  // Exibe modal de perfil na primeira vez que o usuário faz login
+  useEffect(() => {
+    if (
+      state.authState === "authenticated" &&
+      state.currentUserId &&
+      !isProfileComplete(state.currentUserId)
+    ) {
+      setShowProfile(true);
+    }
+  }, [state.authState, state.currentUserId]);
 
   if (state.authState === "loading") {
     return (
@@ -53,7 +68,32 @@ function AuthGuard() {
       <main className="max-w-md mx-auto px-4 pt-5 pb-28 flex flex-col gap-5">
         <Outlet />
       </main>
+
+      {/* FAB global de novo lançamento — centralizado acima da bottom nav */}
+      <button
+        onClick={() => setShowAdd(true)}
+        aria-label="Novo lançamento"
+        className="fixed bottom-[4.5rem] left-1/2 -translate-x-1/2 z-40 size-14 grid place-items-center bg-primary text-primary-foreground rounded-2xl shadow-[0_8px_28px_-4px_oklch(0.68_0.22_305/0.6)] active:scale-95 transition-transform glow-violet"
+      >
+        <Plus className="size-6" />
+      </button>
+
       <BottomNav />
+
+      {showAdd && (
+        <AddTransactionModal
+          onClose={() => setShowAdd(false)}
+          onSave={addTransaction}
+        />
+      )}
+
+      {showProfile && state.currentUserId && (
+        <UserProfileModal
+          userId={state.currentUserId}
+          currentName={state.members.find((m) => m.id === state.currentUserId)?.name ?? ""}
+          onClose={() => setShowProfile(false)}
+        />
+      )}
     </div>
   );
 }
