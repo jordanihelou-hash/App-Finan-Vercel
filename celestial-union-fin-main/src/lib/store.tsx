@@ -129,6 +129,8 @@ interface StoreApi {
   state: State;
   addTransaction: (tx: Omit<Transaction, "id">) => void;
   addCategory: (c: Omit<Category, "id">) => void;
+  addAccount: (a: Omit<Account, "id">) => void;
+  addInvestment: (inv: Omit<Investment, "id" | "moves">) => void;
   transferBetween: (fromId: string, toId: string, amount: number) => void;
   addInvestmentMove: (
     investmentId: string,
@@ -497,6 +499,32 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           color: c.color,
         });
         if (error) console.error("[Store] addCategory:", error);
+      },
+
+      addAccount: async (a) => {
+        if (!state.coupleId) return;
+        const { error } = await supabase.from("accounts").insert({
+          couple_id: state.coupleId,
+          name: a.name,
+          type: a.type,
+          balance: a.balance ?? 0,
+          member_id: a.memberId,
+          brand: a.brand ?? null,
+        });
+        if (error) console.error("[Store] addAccount:", error);
+      },
+
+      addInvestment: async (inv) => {
+        if (!state.coupleId) return;
+        const { error } = await supabase.from("investments").insert({
+          couple_id: state.coupleId,
+          name: inv.name,
+          ticker: inv.ticker ?? null,
+          type: inv.type,
+          applied: inv.applied ?? 0,
+          projected_yield: inv.projectedYield ?? 0,
+        });
+        if (error) console.error("[Store] addInvestment:", error);
       },
 
       transferBetween: async (fromId, toId, amount) => {
