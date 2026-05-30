@@ -2,21 +2,22 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { AppHeader } from "@/components/AppHeader";
 import { useStore, formatBRL } from "@/lib/store";
-import { Search, X, ArrowUpRight, ArrowDownRight, Plus } from "lucide-react";
+import { Search, X, ArrowUpRight, ArrowDownRight, Plus, Trash2 } from "lucide-react";
+import type { Transaction } from "@/lib/mock-data";
 
 export const Route = createFileRoute("/_app/transactions")({
   component: TransactionsPage,
 });
 
 function TransactionsPage() {
-  const { state, addTransaction, addCategory } = useStore();
+  const { state, addTransaction, deleteTransaction, addCategory } = useStore();
   const [view, setView] = useState<"unified" | "individual">("unified");
   const [query, setQuery] = useState("");
   const [showCat, setShowCat] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<Transaction | null>(null);
 
   const filtered = useMemo(() => {
     let list = state.transactions;
-    // Individual view: show only current user's transactions
     if (view === "individual" && state.currentUserId) {
       list = list.filter((t) => t.memberId === state.currentUserId);
     }
@@ -30,6 +31,27 @@ function TransactionsPage() {
     }
     return list;
   }, [state.transactions, state.categories, query, view, state.currentUserId]);
+
+  // Agrupa transações por data (ex: "Hoje", "Ontem", "28 mai.")
+  const groupedByDate = useMemo(() => {
+    const groups: Record<string, { label: string; transactions: Transaction[] }> = {};
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
+
+    filtered.forEach((t) => {
+      const d = new Date(t.date); d.setHours(0, 0, 0, 0);
+      let label: string;
+      if (d.getTime() === today.getTime()) label = "Hoje";
+      else if (d.getTime() === yesterday.getTime()) label = "Ontem";
+      else label = d.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
+
+      const key = d.toISOString().slice(0, 10);
+      if (!groups[key]) groups[key] = { label, transactions: [] };
+      groups[key].transactions.push(t);
+    });
+
+    return Object.entries(groups).sort((a, b) => b[0].localeCompare(a[0]));
+  }, [filtered]);
 
   return (
     <>
@@ -57,33 +79,54 @@ function TransactionsPage() {
         </h2>
       </div>
 
-      <div className="flex flex-col gap-2 animate-fade-up">
-        {filtered.map((t) => {
-          const cat = state.categories.find((c) => c.id === t.categoryId);
-          const member = state.members.find((m) => m.id === t.memberId);
-          return (
-            <div
-              key={t.id}
-              className="glass-card ring-1 ring-white/10 ring-inset-soft rounded-xl p-3 flex items-center gap-3"
-            >
-              <div className={`size-10 shrink-0 rounded-xl grid place-items-center ${t.type === "income" ? "bg-emerald/10 text-emerald" : "bg-coral/10 text-coral"}`}>
-                {t.type === "income" ? <ArrowDownRight className="size-4" /> : <ArrowUpRight className="size-4" />}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">{t.description}</p>
-                <p className="text-[11px] text-muted-foreground truncate">
-                  {cat?.name} · {member?.name} · {new Date(t.date).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}
-                </p>
-              </div>
-              <span className={`mono text-sm font-semibold shrink-0 ${t.type === "income" ? "text-emerald" : "text-coral"}`}>
-                {t.type === "income" ? "+" : "−"}{formatBRL(t.amount)}
-              </span>
-            </div>
-          );
-        })}
-        {filtered.length === 0 && (
+      <div className="flex flex-col gap-4 animate-fade-up">
+        {groupedByDate.length === 0 && (
           <div className="py-12 text-center text-sm text-muted-foreground">Nenhuma transação encontrada.</div>
         )}
+        {groupedByDate.map(([dateKey, group]) => (
+          <div key={dateKey} className="flex flex-col gap-2">
+            {/* Cabeçalho do grupo */}
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-semibold text-muted-foreground">{group.label}</span>
+              <div className="flex-1 h-px bg-white/5" />
+              <span className="text-[10px] mono text-muted-foreground">
+                {group.transactions.reduce((s, t) => t.type === "income" ? s + t.amount : s - t.amount, 0) >= 0
+                  ? "+" : ""}
+                {formatBRL(group.transactions.reduce((s, t) => t.type === "income" ? s + t.amount : s - t.amount, 0))}
+              </span>
+            </div>
+            {group.transactions.map((t) => {
+              const cat = state.categories.find((c) => c.id === t.categoryId);
+              const member = state.members.find((m) => m.id === t.memberId);
+              return (
+                <div
+                  key={t.id}
+                  className="glass-card ring-1 ring-white/10 ring-inset-soft rounded-xl p-3 flex items-center gap-3 group"
+                >
+                  <div className={`size-10 shrink-0 rounded-xl grid place-items-center ${t.type === "income" ? "bg-emerald/10 text-emerald" : "bg-coral/10 text-coral"}`}>
+                    {t.type === "income" ? <ArrowDownRight className="size-4" /> : <ArrowUpRight className="size-4" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{t.description}</p>
+                    <p className="text-[11px] text-muted-foreground truncate">
+                      {cat?.name}{member && view === "unified" ? ` · ${member.name}` : ""}
+                    </p>
+                  </div>
+                  <span className={`mono text-sm font-semibold shrink-0 ${t.type === "income" ? "text-emerald" : "text-coral"}`}>
+                    {t.type === "income" ? "+" : "−"}{formatBRL(t.amount)}
+                  </span>
+                  <button
+                    onClick={() => setConfirmDelete(t)}
+                    aria-label="Excluir lançamento"
+                    className="shrink-0 size-7 rounded-lg grid place-items-center text-muted-foreground hover:text-coral hover:bg-coral/10 transition-all opacity-0 group-hover:opacity-100"
+                  >
+                    <Trash2 className="size-3.5" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        ))}
       </div>
 
       <div>
@@ -112,6 +155,38 @@ function TransactionsPage() {
       </div>
 
       {showCat && <AddCategoryModal onClose={() => setShowCat(false)} onSave={addCategory} />}
+
+      {confirmDelete && (
+        <Sheet onClose={() => setConfirmDelete(null)} title="Excluir lançamento">
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Tem certeza que deseja excluir <span className="text-foreground font-medium">"{confirmDelete.description}"</span>?
+              {confirmDelete.accountId && (
+                <span className="block mt-1 text-[11px] text-amber">
+                  ⚠ O saldo da conta será ajustado automaticamente.
+                </span>
+              )}
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setConfirmDelete(null)}
+                className="flex-1 py-2.5 rounded-xl text-sm font-medium bg-white/5 ring-1 ring-white/10 text-muted-foreground"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={async () => {
+                  await deleteTransaction(confirmDelete.id);
+                  setConfirmDelete(null);
+                }}
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-coral/20 text-coral ring-1 ring-coral/30"
+              >
+                Excluir
+              </button>
+            </div>
+          </div>
+        </Sheet>
+      )}
     </>
   );
 }
@@ -146,6 +221,8 @@ export function AddTransactionModal({ onClose, onSave, defaultMemberId }: AddTra
   const [accountId, setAccountId] = useState(state.accounts[0]?.id ?? "");
   const [memberId, setMemberId] = useState(defaultMemberId ?? state.members[0]?.id ?? "");
   const [showInlineCat, setShowInlineCat] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const cats = state.categories.filter((c) => c.type === type);
 
@@ -160,16 +237,32 @@ export function AddTransactionModal({ onClose, onSave, defaultMemberId }: AddTra
   return (
     <Sheet onClose={onClose} title="Novo Lançamento">
       <form
-        onSubmit={(e) => {
+        onSubmit={async (e) => {
           e.preventDefault();
+          if (saving) return;
+          setValidationError(null);
           const v = parseFloat(amount.replace(",", "."));
-          if (!description || !v || v <= 0) return;
-          if (!categoryId) return; // guard: não salva sem categoria válida
-          if (!accountId) return; // guard: não salva sem conta válida
+          if (!description.trim()) {
+            setValidationError("Informe uma descrição para o lançamento.");
+            return;
+          }
+          if (!v || v <= 0) {
+            setValidationError("Informe um valor válido maior que zero.");
+            return;
+          }
+          if (!categoryId) {
+            setValidationError("Selecione ou crie uma categoria.");
+            return;
+          }
+          if (!accountId) {
+            setValidationError("Adicione uma conta antes de salvar.");
+            return;
+          }
           // Interpreta a data como meio-dia no horário local para evitar off-by-one
           const isoDate = new Date(`${date}T12:00:00`).toISOString();
-          onSave({
-            description, amount: v, date: isoDate,
+          setSaving(true);
+          await onSave({
+            description: description.trim(), amount: v, date: isoDate,
             type, categoryId, accountId, memberId,
           });
           onClose();
@@ -268,12 +361,18 @@ export function AddTransactionModal({ onClose, onSave, defaultMemberId }: AddTra
             Nenhuma categoria disponível. Crie uma antes de salvar.
           </p>
         )}
+        {validationError && (
+          <p className="text-[11px] text-coral p-2.5 bg-coral/10 ring-1 ring-coral/20 rounded-lg">
+            {validationError}
+          </p>
+        )}
         <button
           type="submit"
-          disabled={!categoryId || !accountId}
-          className="w-full py-3 bg-primary text-primary-foreground font-semibold text-sm rounded-xl glow-violet disabled:opacity-50"
+          disabled={!categoryId || !accountId || saving}
+          className="w-full py-3 bg-primary text-primary-foreground font-semibold text-sm rounded-xl glow-violet disabled:opacity-50 flex items-center justify-center gap-2"
         >
-          Salvar Lançamento
+          {saving && <span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
+          {saving ? "Salvando…" : "Salvar Lançamento"}
         </button>
       </form>
     </Sheet>
