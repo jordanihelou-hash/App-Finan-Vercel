@@ -10,7 +10,7 @@ export const Route = createFileRoute("/_app/partnership")({
 });
 
 function PartnershipPage() {
-  const { state, logout } = useStore();
+  const { state, logout, regenerateCode } = useStore();
   const [view, setView] = useState<"unified" | "individual">("unified");
   const [copied, setCopied] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
@@ -77,7 +77,10 @@ function PartnershipPage() {
         <p className="text-xs text-muted-foreground leading-relaxed">
           Apenas os dois membros vinculados acessam os dados. Tudo é criptografado e replicado instantaneamente entre os dispositivos.
         </p>
-        <button className="mt-4 text-xs text-primary font-medium flex items-center gap-1.5">
+        <button
+          onClick={regenerateCode}
+          className="mt-4 text-xs text-primary font-medium flex items-center gap-1.5 active:opacity-70 transition-opacity"
+        >
           <RefreshCw className="size-3" /> Regenerar código
         </button>
       </div>
