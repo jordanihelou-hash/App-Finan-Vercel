@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- "app-store-connect" para submissão à App Store -->
+  <key>method</key>
+  <string>app-store-connect</string>
+
+  <!-- Substitua pelo seu Team ID (encontrado em developer.apple.com) -->
+  <key>teamID</key>
+  <string>SEU_TEAM_ID_AQUI</string>
+
+  <key>uploadBitcode</key>
+  <false/>
+
+  <key>uploadSymbols</key>
+  <true/>
+
+  <key>compileBitcode</key>
+  <false/>
+
+  <!-- Assinatura manual com perfil de provisionamento específico -->
+  <key>signingStyle</key>
+  <string>manual</string>
+
+  <key>provisioningProfiles</key>
+  <dict>
+    <!-- Chave = Bundle ID do app, Valor = nome do perfil de provisionamento -->
+    <key>com.cofredicasal.app</key>
+    <string>Cofre do Casal AppStore</string>
+  </dict>
+</dict>
+</plist>
