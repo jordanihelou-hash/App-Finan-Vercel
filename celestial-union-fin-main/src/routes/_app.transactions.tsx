@@ -163,9 +163,10 @@ export function AddTransactionModal({ onClose, onSave, defaultMemberId }: AddTra
           e.preventDefault();
           const v = parseFloat(amount.replace(",", "."));
           if (!description || !v || v <= 0) return;
+          // Se não há conta selecionada, usa string vazia (será tratado pelo backend)
           onSave({
             description, amount: v, date: new Date().toISOString(),
-            type, categoryId, accountId, memberId,
+            type, categoryId, accountId: accountId || "", memberId,
           });
           onClose();
         }}
@@ -219,10 +220,16 @@ export function AddTransactionModal({ onClose, onSave, defaultMemberId }: AddTra
 
         {/* Conta */}
         <Field label="Conta">
-          <select className={inputCls} value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-            {state.accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-          </select>
-          <p className="text-[10px] text-muted-foreground mt-1">Para adicionar contas, acesse a aba Contas.</p>
+          {state.accounts.length === 0 ? (
+            <div className="w-full bg-[oklch(0.17_0.05_290)] ring-1 ring-white/10 rounded-lg px-3 py-2.5 text-sm text-muted-foreground flex items-center justify-between">
+              <span>Nenhuma conta cadastrada</span>
+              <span className="text-[10px] text-primary">→ aba Contas</span>
+            </div>
+          ) : (
+            <select className={inputCls} value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+              {state.accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+          )}
         </Field>
 
         {/* Parceiro */}
