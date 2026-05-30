@@ -8,9 +8,9 @@ interface Props {
 }
 
 const FALLBACK_MEMBER = {
-  name: "...",
-  initial: "?",
-  avatarColor: "from-violet-400 to-fuchsia-500",
+  name: "Aguardando parceiro",
+  initial: "+",
+  avatarColor: "from-slate-600 to-slate-700",
 };
 
 export function AppHeader({ view, onViewChange, rightSlot, title }: Props) {
