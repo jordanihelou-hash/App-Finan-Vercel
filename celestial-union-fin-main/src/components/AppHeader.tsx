@@ -5,6 +5,7 @@ interface Props {
   onViewChange: (v: "unified" | "individual") => void;
   rightSlot?: React.ReactNode;
   title?: string;
+  hideToggle?: boolean;
 }
 
 const FALLBACK_MEMBER = {
@@ -13,7 +14,7 @@ const FALLBACK_MEMBER = {
   avatarColor: "from-slate-600 to-slate-700",
 };
 
-export function AppHeader({ view, onViewChange, rightSlot, title }: Props) {
+export function AppHeader({ view, onViewChange, rightSlot, title, hideToggle }: Props) {
   const { state } = useStore();
   const m1 = state.members[0] ?? FALLBACK_MEMBER;
   const m2 = state.members[1] ?? FALLBACK_MEMBER;
@@ -50,24 +51,26 @@ export function AppHeader({ view, onViewChange, rightSlot, title }: Props) {
         {rightSlot}
       </div>
 
-      <div className="p-1 bg-white/5 rounded-xl flex ring-1 ring-white/5 w-full">
-        <button
-          onClick={() => onViewChange("unified")}
-          className={`flex-1 py-1.5 text-xs font-medium rounded-lg transition-all ${
-            view === "unified" ? "bg-primary/20 text-primary ring-1 ring-primary/30" : "text-muted-foreground"
-          }`}
-        >
-          Unificada
-        </button>
-        <button
-          onClick={() => onViewChange("individual")}
-          className={`flex-1 py-1.5 text-xs font-medium rounded-lg transition-all ${
-            view === "individual" ? "bg-primary/20 text-primary ring-1 ring-primary/30" : "text-muted-foreground"
-          }`}
-        >
-          Individual
-        </button>
-      </div>
+      {!hideToggle && (
+        <div className="p-1 bg-white/5 rounded-xl flex ring-1 ring-white/5 w-full">
+          <button
+            onClick={() => onViewChange("unified")}
+            className={`flex-1 py-1.5 text-xs font-medium rounded-lg transition-all ${
+              view === "unified" ? "bg-primary/20 text-primary ring-1 ring-primary/30" : "text-muted-foreground"
+            }`}
+          >
+            Unificada
+          </button>
+          <button
+            onClick={() => onViewChange("individual")}
+            className={`flex-1 py-1.5 text-xs font-medium rounded-lg transition-all ${
+              view === "individual" ? "bg-primary/20 text-primary ring-1 ring-primary/30" : "text-muted-foreground"
+            }`}
+          >
+            Individual
+          </button>
+        </div>
+      )}
     </header>
   );
 }
