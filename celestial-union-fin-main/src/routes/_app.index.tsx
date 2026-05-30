@@ -21,10 +21,25 @@ function Dashboard() {
     return d;
   }, []);
 
-  const monthTx = state.transactions.filter((t) => new Date(t.date) >= monthStart);
+  // Filtra transações por modo (individual = só do usuário logado)
+  const baseTx = useMemo(() => {
+    if (view === "individual" && state.currentUserId) {
+      return state.transactions.filter((t) => t.memberId === state.currentUserId);
+    }
+    return state.transactions;
+  }, [state.transactions, state.currentUserId, view]);
+
+  const baseAccounts = useMemo(() => {
+    if (view === "individual" && state.currentUserId) {
+      return state.accounts.filter((a) => a.memberId === state.currentUserId);
+    }
+    return state.accounts;
+  }, [state.accounts, state.currentUserId, view]);
+
+  const monthTx = baseTx.filter((t) => new Date(t.date) >= monthStart);
   const income = monthTx.filter((t) => t.type === "income").reduce((s, t) => s + t.amount, 0);
   const expense = monthTx.filter((t) => t.type === "expense").reduce((s, t) => s + t.amount, 0);
-  const total = state.accounts.reduce((s, a) => s + a.balance, 0);
+  const total = baseAccounts.reduce((s, a) => s + a.balance, 0);
   const invested = state.investments.reduce((s, i) => s + i.applied, 0);
 
   const chartData = useMemo(() => {
@@ -35,7 +50,7 @@ function Dashboard() {
       d.setHours(0, 0, 0, 0);
       days.push({ label: String(d.getDate()).padStart(2, "0"), income: 0, expense: 0, date: d });
     }
-    state.transactions.forEach((t) => {
+    baseTx.forEach((t) => {
       const td = new Date(t.date);
       td.setHours(0, 0, 0, 0);
       const bucket = days.find((b) => b.date.getTime() === td.getTime());
@@ -45,20 +60,25 @@ function Dashboard() {
       }
     });
     return days;
-  }, [state.transactions]);
+  }, [baseTx]);
+
+  const expensePct =
+    income > 0 ? `${((expense / income) * 100).toFixed(0)}% da renda` : "— da renda";
 
   return (
     <>
       <AppHeader view={view} onViewChange={setView} />
 
       <div className="grid grid-cols-2 gap-3">
-        <KpiCard label="Saldo Total" value={total} trend="+2.4% mês" trendTone="up" />
+        <KpiCard label="Saldo Total" value={total} trend={view === "individual" ? "Seu saldo" : "+2.4% mês"} trendTone="up" />
         <KpiCard label="Investido" value={invested} accent="amber" trend="Carteira ativa" />
         <KpiCard label="Receitas" value={income} accent="emerald" trend="No mês" />
-        <KpiCard label="Despesas" value={expense} accent="coral" trend={`${((expense / Math.max(1, income)) * 100).toFixed(0)}% da renda`} />
+        <KpiCard label="Despesas" value={expense} accent="coral" trend={expensePct} />
       </div>
 
-      {view === "unified" ? <CashflowChart data={chartData} /> : <IndividualView />}
+      <CashflowChart data={chartData} />
+
+      {view === "individual" && state.members.length > 0 && <IndividualView />}
 
       <GeminiAdvisor income={income} expense={expense} invested={invested} />
     </>
@@ -68,7 +88,8 @@ function Dashboard() {
 function IndividualView() {
   const { state } = useStore();
   return (
-    <div className="grid grid-cols-1 gap-3 animate-fade-up">
+    <div className="flex flex-col gap-3 animate-fade-up">
+      <h2 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">Resumo por membro</h2>
       {state.members.map((m) => {
         const tx = state.transactions.filter((t) => t.memberId === m.id);
         const income = tx.filter((t) => t.type === "income").reduce((s, t) => s + t.amount, 0);
@@ -82,7 +103,7 @@ function IndividualView() {
               </div>
               <div>
                 <p className="text-sm font-medium">{m.name}</p>
-                <p className="text-[11px] text-muted-foreground">{tx.length} transações</p>
+                <p className="text-[11px] text-muted-foreground">{tx.length} transação{tx.length !== 1 ? "ões" : ""}</p>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
