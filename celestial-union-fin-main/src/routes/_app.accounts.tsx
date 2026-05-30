@@ -102,8 +102,12 @@ function AccountsPage() {
                 </div>
               </div>
               <div className="mt-3 flex items-end justify-between">
-                <p className="mono text-2xl font-semibold">{formatBRL(a.balance)}</p>
-                <span className="text-[11px] text-emerald">● Ativa</span>
+                <p className={`mono text-2xl font-semibold ${a.balance < 0 ? "text-coral" : a.balance < 500 ? "text-amber" : ""}`}>
+                  {formatBRL(a.balance)}
+                </p>
+                <span className={`text-[11px] ${a.balance < 0 ? "text-coral" : a.balance < 500 ? "text-amber" : "text-emerald"}`}>
+                  {a.balance < 0 ? "● Negativo" : a.balance < 500 ? "● Saldo baixo" : "● Ativa"}
+                </span>
               </div>
             </div>
           );
@@ -149,15 +153,17 @@ function AddAccountModal({
   const [balance, setBalance] = useState("0");
   const [brand, setBrand] = useState("");
   const [memberId, setMemberId] = useState(state.currentUserId ?? state.members[0]?.id ?? "");
+  const [saving, setSaving] = useState(false);
 
   return (
     <Sheet onClose={onClose} title="Nova Conta">
       <form
-        onSubmit={(e) => {
+        onSubmit={async (e) => {
           e.preventDefault();
-          if (!name.trim()) return;
+          if (!name.trim() || saving) return;
+          setSaving(true);
           const bal = parseFloat(balance.replace(",", ".")) || 0;
-          onSave({
+          await onSave({
             name: name.trim(),
             type,
             balance: bal,
@@ -225,8 +231,13 @@ function AddAccountModal({
           </div>
         </label>
 
-        <button type="submit" className="w-full py-3 bg-primary text-primary-foreground font-semibold text-sm rounded-xl glow-violet">
-          Criar Conta
+        <button
+          type="submit"
+          disabled={saving || !name.trim()}
+          className="w-full py-3 bg-primary text-primary-foreground font-semibold text-sm rounded-xl glow-violet disabled:opacity-60 flex items-center justify-center gap-2"
+        >
+          {saving && <span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
+          {saving ? "Criando…" : "Criar Conta"}
         </button>
       </form>
     </Sheet>
