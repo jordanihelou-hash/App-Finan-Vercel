@@ -136,6 +136,7 @@ interface StoreApi {
     investmentId: string,
     move: { kind: "aporte" | "resgate"; amount: number }
   ) => void;
+  regenerateCode: () => void;
   /** @deprecated mantido por compatibilidade de interface */
   login: (email: string) => void;
   logout: () => void;
@@ -455,6 +456,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  // Timeout de segurança: se auth não resolver em 12s, redireciona para login.
+  // Isso previne o spinner infinito quando as env vars do Supabase não estão configuradas.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setState((s) => {
+        if (s.authState === "loading") {
+          console.warn("[Store] Auth timeout — forçando unauthenticated");
+          return { ...s, authState: "unauthenticated" };
+        }
+        return s;
+      });
+    }, 12_000);
+    return () => clearTimeout(t);
+  }, []);
+
   // ── Memoised API ──────────────────────────────────────────────────────────────
   const api = useMemo<StoreApi>(
     () => ({
@@ -567,6 +583,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             .update({ applied: newApplied })
             .eq("id", investmentId),
         ]);
+      },
+
+      regenerateCode: async () => {
+        if (!state.coupleId) return;
+        const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+        let code = "JOIN-";
+        for (let i = 0; i < 4; i++)
+          code += chars[Math.floor(Math.random() * chars.length)];
+        const { error } = await supabase
+          .from("couples")
+          .update({ code })
+          .eq("id", state.coupleId);
+        if (!error) setState((s) => ({ ...s, coupleCode: code }));
+        else console.error("[Store] regenerateCode:", error);
       },
 
       login: (_email) => {
