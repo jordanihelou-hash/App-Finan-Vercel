@@ -27,17 +27,9 @@ function localFallback(input: AnalysisInput): Analysis {
   const { income, paidExpense, forecastExpense, invested, categoryBreakdown, goalProgress, overBudgetCategories } = input;
   const totalExpense = paidExpense + forecastExpense;
 
-  // Score baseado na regra 50/30/20
-  const expenseRatio = income > 0 ? totalExpense / income : 1;
-  const savingsRate = Math.max(0, 1 - expenseRatio);
-  const investRatio = invested / Math.max(1, income * 12);
-  let score = Math.round(38 + savingsRate * 47 + Math.min(15, investRatio * 35));
-  score = Math.max(10, Math.min(96, score));
-  const status: Analysis["status"] =
-    score >= 75 ? "Saudável" : score >= 52 ? "Atenção" : "Crítico";
-
-  // Distribuição 50/30/20
+  // Score e breakdown calculados de forma determinística (nunca pela IA)
   const ruleBreakdown = computeRuleBreakdown(income, totalExpense, invested, categoryBreakdown);
+  const { score, status } = computeScore(income, totalExpense, ruleBreakdown);
 
   // Alerta proativo se houver extrapolação
   let budgetAlert: string | undefined;
@@ -97,7 +89,7 @@ function localFallback(input: AnalysisInput): Analysis {
 function computeRuleBreakdown(
   income: number,
   totalExpense: number,
-  invested: number,
+  _invested: number,
   breakdown?: CategoryBreakdown[]
 ): RuleBreakdown {
   if (!income || income === 0) return { necessidades: 0, estiloDeVida: 0, investimentos: 0 };
@@ -111,17 +103,51 @@ function computeRuleBreakdown(
       if (c.group === "necessidades") necessidades += total;
       else if (c.group === "estilo_vida") estiloDeVida += total;
     });
+    // Categorias sem grupo atribuído: se totalExpense > necessidades + estiloDeVida,
+    // o restante das despesas vai para necessidades (estimativa conservadora)
+    const categorized = necessidades + estiloDeVida;
+    if (categorized < totalExpense) necessidades += totalExpense - categorized;
   } else {
-    // Estimativa grosseira sem breakdown: 60/40 dos gastos
+    // Sem breakdown: estimativa 60/40
     necessidades = totalExpense * 0.6;
     estiloDeVida = totalExpense * 0.4;
   }
 
+  // Investimentos = taxa de poupança do mês (o que não foi consumido em despesas)
+  // Esta é a interpretação correta da regra 50/30/20 para fluxo de caixa mensal
+  const investimentos = Math.max(0, income - totalExpense);
+
   return {
-    necessidades: (necessidades / income) * 100,
-    estiloDeVida: (estiloDeVida / income) * 100,
-    investimentos: (invested / (income * 12)) * 100, // yield anualizado simplificado
+    necessidades: Math.min(200, (necessidades / income) * 100),
+    estiloDeVida: Math.min(200, (estiloDeVida / income) * 100),
+    investimentos: Math.min(100, (investimentos / income) * 100),
   };
+}
+
+/** Calcula score de forma determinística a partir dos dados financeiros */
+function computeScore(
+  income: number,
+  totalExpense: number,
+  ruleBreakdown: RuleBreakdown
+): { score: number; status: Analysis["status"] } {
+  if (income === 0 && totalExpense === 0) return { score: 0, status: "Atenção" };
+
+  const expenseRatio = income > 0 ? totalExpense / income : 1;
+  const savingsRate = Math.max(0, 1 - expenseRatio);
+
+  // Penalidades por extrapolar os tetos da regra 50/30/20
+  const necPenalty = ruleBreakdown.necessidades > 50 ? (ruleBreakdown.necessidades - 50) * 0.4 : 0;
+  const esvPenalty = ruleBreakdown.estiloDeVida > 30 ? (ruleBreakdown.estiloDeVida - 30) * 0.5 : 0;
+  // Bônus por investir acima de 20%
+  const invBonus = ruleBreakdown.investimentos >= 20 ? Math.min(10, (ruleBreakdown.investimentos - 20) * 0.2) : 0;
+
+  let score = Math.round(40 + savingsRate * 45 - necPenalty - esvPenalty + invBonus);
+  score = Math.max(10, Math.min(96, score));
+
+  const status: Analysis["status"] =
+    score >= 75 ? "Saudável" : score >= 52 ? "Atenção" : "Crítico";
+
+  return { score, status };
 }
 
 // ── Prompt da Ana ─────────────────────────────────────────────────────────────
@@ -183,17 +209,19 @@ INSTRUÇÕES DE ANÁLISE:
 5. "ruleBreakdown" deve refletir Necessidades/EstiloDeVida/Investimentos como % da renda bruta, considerando Pago + Previsto.
 ═══════════════════════════════════════
 
+IMPORTANTE: "score", "status" e "ruleBreakdown" são calculados automaticamente pelo sistema com base nos dados — você NÃO precisa calculá-los, coloque qualquer valor válido (serão substituídos). Foque sua análise em "summary", "critical", "suggestions", "risks", "goldenTip" e "budgetAlert".
+
 Retorne exatamente este JSON:
 {
-  "score": <0-100>,
-  "status": <"Saudável" | "Atenção" | "Crítico">,
+  "score": 0,
+  "status": "Saudável",
   "summary": <2-3 frases sobre a situação do casal, cite os nomes e os valores reais>,
   "critical": <array 1-3 strings com pontos críticos específicos e valores reais>,
   "suggestions": <array 2-3 objetos {"title": string, "detail": string} com ações práticas e valores>,
   "risks": <array 1-2 strings com riscos nos próximos 30 dias>,
   "goldenTip": <dica motivacional personalizada para o casal>,
   "budgetAlert": <string contextual acionável | null>,
-  "ruleBreakdown": {"necessidades": <número>, "estiloDeVida": <número>, "investimentos": <número>}
+  "ruleBreakdown": {"necessidades": 0, "estiloDeVida": 0, "investimentos": 0}
 }`;
 }
 
@@ -246,7 +274,7 @@ export default async function handler(req: Request): Promise<Response> {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { responseMimeType: "application/json", temperature: 0.6 },
+          generationConfig: { responseMimeType: "application/json", temperature: 0 },
         }),
       }
     );
@@ -260,9 +288,17 @@ export default async function handler(req: Request): Promise<Response> {
     const text: string = json?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
     const parsed = JSON.parse(text) as Analysis;
 
-    if (typeof parsed.score !== "number" || !parsed.status || !parsed.summary) {
+    if (!parsed.summary) {
       throw new Error("Invalid response shape from Gemini");
     }
+
+    // Score e ruleBreakdown são SEMPRE calculados deterministicamente — nunca pela IA
+    // Isso garante consistência total entre chamadas com os mesmos dados
+    const ruleBreakdown = computeRuleBreakdown(input.income, input.paidExpense + input.forecastExpense, input.invested, input.categoryBreakdown);
+    const { score, status } = computeScore(input.income, input.paidExpense + input.forecastExpense, ruleBreakdown);
+    parsed.score = score;
+    parsed.status = status;
+    parsed.ruleBreakdown = ruleBreakdown;
 
     return new Response(JSON.stringify(parsed), { headers });
   } catch (err) {
