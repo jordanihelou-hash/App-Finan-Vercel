@@ -143,6 +143,8 @@ interface StoreApi {
   addInvestmentGoal: (goal: Omit<InvestmentGoal, "id">) => string;
   /** Retorna o ID da nova categoria criada, ou null em caso de erro */
   addCategory: (c: Omit<Category, "id">) => Promise<string | null>;
+  /** Atualiza nome, cor, grupo e orçamento de uma categoria existente */
+  updateCategory: (id: string, changes: Partial<Omit<Category, "id">>) => Promise<void>;
   addAccount: (a: Omit<Account, "id">) => void;
   addInvestment: (inv: Omit<Investment, "id" | "moves">) => void;
   deleteInvestment: (id: string) => Promise<void>;
@@ -617,6 +619,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             name: c.name,
             type: c.type,
             color: c.color,
+            group: c.group ?? null,
+            budget: c.budget ?? null,
           })
           .select("id")
           .single();
@@ -624,7 +628,31 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           console.error("[Store] addCategory:", error);
           return null;
         }
+        await refetchCategories(state.coupleId);
         return (data?.id as string) ?? null;
+      },
+
+      updateCategory: async (id, changes) => {
+        if (!state.coupleId) return;
+        // Optimistic update
+        setState((s) => ({
+          ...s,
+          categories: s.categories.map((c) => c.id === id ? { ...c, ...changes } : c),
+        }));
+        const { error } = await supabase
+          .from("categories")
+          .update({
+            ...(changes.name !== undefined && { name: changes.name }),
+            ...(changes.type !== undefined && { type: changes.type }),
+            ...(changes.color !== undefined && { color: changes.color }),
+            ...(changes.group !== undefined && { group: changes.group }),
+            ...(changes.budget !== undefined && { budget: changes.budget }),
+          })
+          .eq("id", id);
+        if (error) {
+          console.error("[Store] updateCategory:", error);
+          await refetchCategories(state.coupleId);
+        }
       },
 
       addAccount: async (a) => {
