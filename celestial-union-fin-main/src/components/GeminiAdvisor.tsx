@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, forwardRef, useImperativeHandle } from "react";
 import { useStore } from "@/lib/store";
 import { Sparkles, Loader2, AlertTriangle, Lightbulb, Zap } from "lucide-react";
 
@@ -66,34 +66,34 @@ function localScore(income: number, expense: number, invested: number): Analysis
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function GeminiAdvisor({
-  income,
-  expense,
-  invested,
-}: {
-  income: number;
-  expense: number;
-  invested: number;
-}) {
+export interface GeminiAdvisorHandle {
+  triggerOverBudget: (overCategories: string[]) => void;
+}
+
+export const GeminiAdvisor = forwardRef<
+  GeminiAdvisorHandle,
+  { income: number; expense: number; invested: number }
+>(function GeminiAdvisorInner({ income, expense, invested }, ref) {
   const { state } = useStore();
   const [analysis, setAnalysis] = useState<Analysis>(() =>
     localScore(income, expense, invested)
   );
   const [loading, setLoading] = useState(false);
+  const [overBudgetBanner, setOverBudgetBanner] = useState<string[] | null>(null);
 
   // Atualiza a análise local quando os dados carregam (ex: primeira vez com dados reais)
   useEffect(() => {
     setAnalysis((prev) => {
-      // Só atualiza se ainda estiver no estado "sem dados" (score 0)
       if (prev.score === 0 && (income > 0 || expense > 0 || invested > 0)) {
         return localScore(income, expense, invested);
       }
       return prev;
     });
   }, [income, expense, invested]);
+
   const [apiError, setApiError] = useState<string | null>(null);
 
-  const regenerate = async () => {
+  const regenerate = async (overCats?: string[]) => {
     setLoading(true);
     setApiError(null);
     try {
@@ -105,6 +105,7 @@ export function GeminiAdvisor({
           expense,
           invested,
           memberNames: state.members.map((m) => m.name),
+          overBudgetCategories: overCats ?? [],
         }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -116,6 +117,14 @@ export function GeminiAdvisor({
     }
     setLoading(false);
   };
+
+  // Expõe triggerOverBudget para o pai via ref
+  useImperativeHandle(ref, () => ({
+    triggerOverBudget: (cats: string[]) => {
+      setOverBudgetBanner(cats);
+      regenerate(cats);
+    },
+  }));
 
   const score = analysis.score;
   const circumference = 2 * Math.PI * 40;
@@ -130,6 +139,15 @@ export function GeminiAdvisor({
 
   return (
     <aside className="glass-card rounded-2xl ring-1 ring-white/10 ring-inset-soft p-6 flex flex-col h-full bg-primary/[0.04] animate-fade-up">
+      {overBudgetBanner && overBudgetBanner.length > 0 && (
+        <div className="mb-4 p-3 bg-coral/10 ring-1 ring-coral/30 rounded-xl text-[11px] text-coral flex items-start gap-2">
+          <AlertTriangle className="size-3.5 shrink-0 mt-0.5" />
+          <span>
+            <strong>Orçamento extrapolado</strong> em{" "}
+            {overBudgetBanner.join(", ")}. Análise de IA gerada automaticamente.
+          </span>
+        </div>
+      )}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-2">
           <div className="size-5 bg-gradient-to-tr from-primary to-cyan rounded-full blur-[2px] animate-pulse" />
@@ -263,4 +281,4 @@ export function GeminiAdvisor({
       </div>
     </aside>
   );
-}
+});
