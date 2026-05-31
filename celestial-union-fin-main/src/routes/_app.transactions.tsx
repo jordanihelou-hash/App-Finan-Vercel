@@ -2,18 +2,19 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { AppHeader } from "@/components/AppHeader";
 import { useStore, formatBRL } from "@/lib/store";
-import { Search, X, ArrowUpRight, ArrowDownRight, Plus, Trash2, CheckCircle2, Clock } from "lucide-react";
-import type { Transaction, TxStatus } from "@/lib/mock-data";
+import { Search, X, ArrowUpRight, ArrowDownRight, Plus, Trash2, CheckCircle2, Clock, Pencil } from "lucide-react";
+import type { Transaction, TxStatus, Category, CategoryGroup } from "@/lib/mock-data";
 
 export const Route = createFileRoute("/_app/transactions")({
   component: TransactionsPage,
 });
 
 function TransactionsPage() {
-  const { state, addTransaction, deleteTransaction, addCategory, updateTransactionStatus } = useStore();
+  const { state, addTransaction, deleteTransaction, addCategory, updateCategory, updateTransactionStatus } = useStore();
   const [view, setView] = useState<"unified" | "individual">("unified");
   const [query, setQuery] = useState("");
   const [showCat, setShowCat] = useState(false);
+  const [editCat, setEditCat] = useState<Category | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Transaction | null>(null);
 
   const filtered = useMemo(() => {
@@ -145,32 +146,21 @@ function TransactionsPage() {
         ))}
       </div>
 
-      <div>
-        <h2 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-2">Categorias</h2>
-        <div className="glass-card ring-1 ring-white/10 ring-inset-soft rounded-2xl p-4 space-y-2">
-          {state.categories.map((c) => {
-            const total = state.transactions.filter((t) => t.categoryId === c.id).reduce((s, t) => s + t.amount, 0);
-            return (
-              <div key={c.id} className="flex items-center justify-between py-1 text-xs">
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className={`size-1.5 rounded-full ${dotColor(c.color)}`} />
-                  <span className="truncate">{c.name}</span>
-                  <span className="text-[10px] text-muted-foreground uppercase shrink-0">{c.type === "income" ? "Rec." : "Desp."}</span>
-                </div>
-                <span className="mono text-muted-foreground shrink-0">{formatBRL(total)}</span>
-              </div>
-            );
-          })}
-          <button
-            onClick={() => setShowCat(true)}
-            className="mt-1 w-full flex items-center gap-1.5 text-[11px] text-primary font-medium py-1"
-          >
-            <Plus className="size-3" /> Nova categoria
-          </button>
-        </div>
-      </div>
+      <CategoriesSection
+        categories={state.categories}
+        transactions={state.transactions}
+        onAdd={() => setShowCat(true)}
+        onEdit={(c) => setEditCat(c)}
+      />
 
       {showCat && <AddCategoryModal onClose={() => setShowCat(false)} onSave={addCategory} />}
+      {editCat && (
+        <EditCategoryModal
+          category={editCat}
+          onClose={() => setEditCat(null)}
+          onSave={async (changes) => { await updateCategory(editCat.id, changes); setEditCat(null); }}
+        />
+      )}
 
       {confirmDelete && (
         <Sheet onClose={() => setConfirmDelete(null)} title="Excluir lançamento">
@@ -470,28 +460,247 @@ function AddInlineCategory({
   );
 }
 
+// ── CategoriesSection ─────────────────────────────────────────────────────────
+
+type GroupDef = {
+  key: "necessidades" | "estilo_vida" | "receitas" | "sem_grupo";
+  label: string;
+  color: string;
+  description: string;
+};
+
+const CATEGORY_GROUPS: GroupDef[] = [
+  { key: "necessidades", label: "Necessidades", color: "text-primary", description: "≤ 50% da renda • Moradia, mercado, saúde, transporte…" },
+  { key: "estilo_vida", label: "Estilo de Vida", color: "text-amber", description: "≤ 30% da renda • Lazer, restaurantes, assinaturas…" },
+  { key: "receitas", label: "Receitas", color: "text-emerald", description: "Entradas de dinheiro" },
+  { key: "sem_grupo", label: "Sem grupo", color: "text-muted-foreground", description: "Categorias não classificadas" },
+];
+
+function CategoriesSection({
+  categories,
+  transactions,
+  onAdd,
+  onEdit,
+}: {
+  categories: Category[];
+  transactions: Transaction[];
+  onAdd: () => void;
+  onEdit: (c: Category) => void;
+}) {
+  const grouped = useMemo(() => {
+    return CATEGORY_GROUPS.map((g) => {
+      let cats: Category[];
+      if (g.key === "receitas") {
+        cats = categories.filter((c) => c.type === "income");
+      } else if (g.key === "sem_grupo") {
+        cats = categories.filter((c) => c.type === "expense" && !c.group);
+      } else {
+        cats = categories.filter((c) => c.type === "expense" && c.group === g.key);
+      }
+      return { ...g, cats };
+    }).filter((g) => g.cats.length > 0 || g.key === "sem_grupo");
+  }, [categories]);
+
+  return (
+    <div>
+      <h2 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-2">Categorias</h2>
+      <div className="glass-card ring-1 ring-white/10 ring-inset-soft rounded-2xl overflow-hidden">
+        {grouped.map((g, gi) => (
+          <div key={g.key}>
+            {gi > 0 && <div className="h-px bg-white/5 mx-4" />}
+            {/* Cabeçalho do grupo */}
+            <div className="px-4 pt-3 pb-1 flex items-baseline justify-between">
+              <span className={`text-[10px] font-bold uppercase tracking-widest ${g.color}`}>{g.label}</span>
+              <span className="text-[9px] text-muted-foreground">{g.description}</span>
+            </div>
+            {/* Categorias do grupo */}
+            {g.cats.length === 0 ? (
+              <p className="px-4 pb-3 text-[11px] text-muted-foreground/50 italic">Nenhuma categoria neste grupo.</p>
+            ) : (
+              <div className="px-2 pb-2">
+                {g.cats.map((c) => {
+                  const total = transactions
+                    .filter((t) => t.categoryId === c.id)
+                    .reduce((s, t) => s + t.amount, 0);
+                  return (
+                    <div key={c.id} className="flex items-center justify-between py-1.5 px-2 rounded-lg group hover:bg-white/[0.03] text-xs">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className={`size-1.5 rounded-full shrink-0 ${dotColor(c.color)}`} />
+                        <span className="truncate">{c.name}</span>
+                        {c.budget && (
+                          <span className="text-[9px] text-muted-foreground/60 shrink-0">
+                            lim. {formatBRL(c.budget)}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="mono text-muted-foreground">{formatBRL(total)}</span>
+                        <button
+                          onClick={() => onEdit(c)}
+                          className="size-6 rounded-md grid place-items-center text-muted-foreground hover:text-primary hover:bg-primary/10 transition-all opacity-0 group-hover:opacity-100"
+                          title="Editar categoria"
+                        >
+                          <Pencil className="size-3" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        ))}
+        <div className="h-px bg-white/5 mx-4" />
+        <button
+          onClick={onAdd}
+          className="w-full flex items-center gap-1.5 text-[11px] text-primary font-medium px-4 py-3"
+        >
+          <Plus className="size-3" /> Nova categoria
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── EditCategoryModal ─────────────────────────────────────────────────────────
+
+function EditCategoryModal({
+  category,
+  onClose,
+  onSave,
+}: {
+  category: Category;
+  onClose: () => void;
+  onSave: (changes: Partial<Omit<Category, "id">>) => Promise<void>;
+}) {
+  const [name, setName] = useState(category.name);
+  const [color, setColor] = useState(category.color);
+  const [group, setGroup] = useState<CategoryGroup | "">(category.group ?? "");
+  const [budget, setBudget] = useState(category.budget ? String(category.budget) : "");
+  const [saving, setSaving] = useState(false);
+
+  return (
+    <Sheet onClose={onClose} title="Editar Categoria">
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (!name.trim() || saving) return;
+          setSaving(true);
+          await onSave({
+            name: name.trim(),
+            color,
+            group: (group as CategoryGroup) || undefined,
+            budget: budget ? parseFloat(budget.replace(",", ".")) : undefined,
+          });
+        }}
+        className="space-y-4"
+      >
+        <Field label="Nome">
+          <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} />
+        </Field>
+
+        {category.type === "expense" && (
+          <Field label="Grupo 50/30/20">
+            <select
+              className={inputCls}
+              value={group}
+              onChange={(e) => setGroup(e.target.value as CategoryGroup | "")}
+            >
+              <option value="">Sem grupo</option>
+              <option value="necessidades">Necessidades (≤ 50%)</option>
+              <option value="estilo_vida">Estilo de Vida (≤ 30%)</option>
+            </select>
+          </Field>
+        )}
+
+        {category.type === "expense" && (
+          <Field label="Limite mensal (R$) — opcional">
+            <input
+              className={inputCls + " mono"}
+              value={budget}
+              onChange={(e) => setBudget(e.target.value)}
+              placeholder="Ex: 500"
+              inputMode="decimal"
+            />
+            {budget && (
+              <p className="text-[10px] text-muted-foreground mt-1 pl-1">
+                O gráfico de orçamento aparece quando este valor é preenchido.
+              </p>
+            )}
+          </Field>
+        )}
+
+        <Field label="Cor">
+          <div className="flex gap-2">
+            {(["violet", "emerald", "coral", "amber", "cyan"] as const).map((c) => (
+              <button key={c} type="button" onClick={() => setColor(c)}
+                className={`size-9 rounded-full ${dotColor(c)} ring-2 transition-all ${color === c ? "ring-white scale-110" : "ring-transparent"}`} />
+            ))}
+          </div>
+        </Field>
+
+        <button
+          type="submit"
+          disabled={saving}
+          className="w-full py-3 bg-primary text-primary-foreground font-semibold text-sm rounded-xl glow-violet disabled:opacity-50 flex items-center justify-center gap-2"
+        >
+          {saving && <span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
+          {saving ? "Salvando…" : "Salvar alterações"}
+        </button>
+      </form>
+    </Sheet>
+  );
+}
+
 // ── AddCategoryModal ──────────────────────────────────────────────────────────
 
 function AddCategoryModal({ onClose, onSave }: { onClose: () => void; onSave: ReturnType<typeof useStore>["addCategory"] }) {
   const [name, setName] = useState("");
   const [type, setType] = useState<"income" | "expense">("expense");
   const [color, setColor] = useState<"violet" | "emerald" | "coral" | "amber" | "cyan">("violet");
+  const [group, setGroup] = useState<CategoryGroup | "">("");
+  const [budget, setBudget] = useState("");
 
   return (
     <Sheet onClose={onClose} title="Nova Categoria">
       <form
-        onSubmit={(e) => { e.preventDefault(); if (!name) return; onSave({ name, type, color }); onClose(); }}
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!name) return;
+          onSave({
+            name,
+            type,
+            color,
+            group: (group as CategoryGroup) || undefined,
+            budget: budget ? parseFloat(budget.replace(",", ".")) : undefined,
+          });
+          onClose();
+        }}
         className="space-y-4"
       >
         <Field label="Nome">
           <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex: Pets" />
         </Field>
         <Field label="Tipo">
-          <select className={inputCls} value={type} onChange={(e) => setType(e.target.value as "income" | "expense")}>
+          <select className={inputCls} value={type} onChange={(e) => { setType(e.target.value as "income" | "expense"); setGroup(""); }}>
             <option value="expense">Despesa</option>
             <option value="income">Receita</option>
           </select>
         </Field>
+        {type === "expense" && (
+          <Field label="Grupo 50/30/20">
+            <select className={inputCls} value={group} onChange={(e) => setGroup(e.target.value as CategoryGroup | "")}>
+              <option value="">Sem grupo</option>
+              <option value="necessidades">Necessidades (≤ 50%)</option>
+              <option value="estilo_vida">Estilo de Vida (≤ 30%)</option>
+            </select>
+          </Field>
+        )}
+        {type === "expense" && (
+          <Field label="Limite mensal (R$) — opcional">
+            <input className={inputCls + " mono"} value={budget} onChange={(e) => setBudget(e.target.value)} placeholder="Ex: 500" inputMode="decimal" />
+          </Field>
+        )}
         <Field label="Cor">
           <div className="flex gap-2">
             {(["violet", "emerald", "coral", "amber", "cyan"] as const).map((c) => (
