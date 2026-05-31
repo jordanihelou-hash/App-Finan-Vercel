@@ -475,8 +475,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  // Timeout de segurança: se auth não resolver em 12s, redireciona para login.
+  // Timeout de segurança: se auth não resolver em 30s, redireciona para login.
   // Isso previne o spinner infinito quando as env vars do Supabase não estão configuradas.
+  // 30s para cobrir cold starts do Supabase free tier (que pode demorar 15-20s).
   useEffect(() => {
     const t = setTimeout(() => {
       setState((s) => {
@@ -486,7 +487,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
         return s;
       });
-    }, 12_000);
+    }, 30_000);
     return () => clearTimeout(t);
   }, []);
 
@@ -515,8 +516,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        // Atualiza saldo da conta (só se accountId for válido)
-        const account = tx.accountId ? state.accounts.find((a) => a.id === tx.accountId) : null;
+        // Atualiza saldo da conta SOMENTE se status === "pago"
+        // Transações "previsto" não afetam o saldo real
+        const account = (tx.status ?? "pago") === "pago" && tx.accountId
+          ? state.accounts.find((a) => a.id === tx.accountId)
+          : null;
         if (account) {
           const delta = tx.type === "income" ? tx.amount : -tx.amount;
           await supabase
@@ -534,6 +538,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
       updateTransactionStatus: async (id: string, status: TxStatus) => {
         if (!state.coupleId) return;
+        const tx = state.transactions.find((t) => t.id === id);
+        if (!tx) return;
+
         // Atualização otimista local
         setState((s) => ({
           ...s,
@@ -541,6 +548,24 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             t.id === id ? { ...t, status } : t
           ),
         }));
+
+        // Ajusta saldo da conta quando status muda
+        // previsto → pago: aplica o delta (a transação agora é real)
+        // pago → previsto: reverte o delta (a transação volta a ser planejada)
+        if (tx.accountId) {
+          const account = state.accounts.find((a) => a.id === tx.accountId);
+          if (account) {
+            const sign = tx.type === "income" ? 1 : -1;
+            const delta = status === "pago"
+              ? sign * tx.amount      // confirmando: aplica
+              : -sign * tx.amount;   // revertendo: remove
+            await supabase
+              .from("accounts")
+              .update({ balance: account.balance + delta })
+              .eq("id", tx.accountId);
+          }
+        }
+
         const { error } = await supabase
           .from("transactions")
           .update({ status })
@@ -548,15 +573,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (error) {
           console.error("[Store] updateTransactionStatus:", error);
           // Reverte em caso de erro
-          await refetchTransactions(state.coupleId);
+          await Promise.all([
+            refetchTransactions(state.coupleId),
+            refetchAccounts(state.coupleId),
+          ]);
+        } else {
+          await refetchAccounts(state.coupleId);
         }
       },
 
       deleteTransaction: async (id: string) => {
         if (!state.coupleId) return;
-        // Restaura saldo da conta antes de deletar
+        // Restaura saldo da conta antes de deletar — SOMENTE se status === "pago"
+        // Transações "previsto" nunca afetaram o saldo, então não há nada a reverter
         const tx = state.transactions.find((t) => t.id === id);
-        if (tx?.accountId) {
+        if (tx?.accountId && (tx.status ?? "pago") === "pago") {
           const account = state.accounts.find((a) => a.id === tx.accountId);
           if (account) {
             const delta = tx.type === "income" ? -tx.amount : tx.amount;
