@@ -1,9 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { AppHeader } from "@/components/AppHeader";
 import { KpiCard } from "@/components/KpiCard";
 import { GeminiAdvisor } from "@/components/GeminiAdvisor";
 import { CashflowChart } from "@/components/CashflowChart";
+import { CategoryBudgetChart } from "@/components/CategoryBudgetChart";
 import { useStore, formatBRL } from "@/lib/store";
 
 export const Route = createFileRoute("/_app/")({
@@ -13,6 +14,7 @@ export const Route = createFileRoute("/_app/")({
 function Dashboard() {
   const { state } = useStore();
   const [view, setView] = useState<"unified" | "individual">("unified");
+  const advisorRef = useRef<{ triggerOverBudget: (cats: string[]) => void } | null>(null);
 
   const monthStart = useMemo(() => {
     const d = new Date();
@@ -87,7 +89,13 @@ function Dashboard() {
 
       {view === "individual" && state.members.length > 0 && <IndividualView />}
 
-      <GeminiAdvisor income={income} expense={expense} invested={invested} />
+      <CategoryBudgetChart
+        categories={state.categories}
+        transactions={baseTx}
+        onOverBudget={(cats) => advisorRef.current?.triggerOverBudget(cats)}
+      />
+
+      <GeminiAdvisor ref={advisorRef} income={income} expense={expense} invested={invested} />
     </>
   );
 }
