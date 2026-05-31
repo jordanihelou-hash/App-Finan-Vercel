@@ -2,15 +2,15 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { AppHeader } from "@/components/AppHeader";
 import { useStore, formatBRL } from "@/lib/store";
-import { Search, X, ArrowUpRight, ArrowDownRight, Plus, Trash2 } from "lucide-react";
-import type { Transaction } from "@/lib/mock-data";
+import { Search, X, ArrowUpRight, ArrowDownRight, Plus, Trash2, CheckCircle2, Clock } from "lucide-react";
+import type { Transaction, TxStatus } from "@/lib/mock-data";
 
 export const Route = createFileRoute("/_app/transactions")({
   component: TransactionsPage,
 });
 
 function TransactionsPage() {
-  const { state, addTransaction, deleteTransaction, addCategory } = useStore();
+  const { state, addTransaction, deleteTransaction, addCategory, updateTransactionStatus } = useStore();
   const [view, setView] = useState<"unified" | "individual">("unified");
   const [query, setQuery] = useState("");
   const [showCat, setShowCat] = useState(false);
@@ -112,16 +112,32 @@ function TransactionsPage() {
                       {cat?.name}{member && view === "unified" ? ` · ${member.name}` : ""}
                     </p>
                   </div>
-                  <span className={`mono text-sm font-semibold shrink-0 ${t.type === "income" ? "text-emerald" : "text-coral"}`}>
-                    {t.type === "income" ? "+" : "−"}{formatBRL(t.amount)}
-                  </span>
-                  <button
-                    onClick={() => setConfirmDelete(t)}
-                    aria-label="Excluir lançamento"
-                    className="shrink-0 size-7 rounded-lg grid place-items-center text-muted-foreground hover:text-coral hover:bg-coral/10 transition-all opacity-0 group-hover:opacity-100"
-                  >
-                    <Trash2 className="size-3.5" />
-                  </button>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {/* Badge / toggle de status */}
+                    <button
+                      onClick={() => updateTransactionStatus(t.id, t.status === "pago" ? "previsto" : "pago")}
+                      title={t.status === "pago" ? "Pago — clique para marcar como Previsto" : "Previsto — clique para marcar como Pago"}
+                      className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ring-1 transition-all ${
+                        t.status === "pago"
+                          ? "bg-emerald/15 text-emerald ring-emerald/30"
+                          : "bg-amber/15 text-amber ring-amber/30"
+                      }`}
+                    >
+                      {t.status === "pago"
+                        ? <><CheckCircle2 className="size-2.5" /> Pago</>
+                        : <><Clock className="size-2.5" /> Previsto</>}
+                    </button>
+                    <span className={`mono text-sm font-semibold ${t.type === "income" ? "text-emerald" : "text-coral"}`}>
+                      {t.type === "income" ? "+" : "−"}{formatBRL(t.amount)}
+                    </span>
+                    <button
+                      onClick={() => setConfirmDelete(t)}
+                      aria-label="Excluir lançamento"
+                      className="size-7 rounded-lg grid place-items-center text-muted-foreground hover:text-coral hover:bg-coral/10 transition-all opacity-0 group-hover:opacity-100"
+                    >
+                      <Trash2 className="size-3.5" />
+                    </button>
+                  </div>
                 </div>
               );
             })}
@@ -214,6 +230,7 @@ interface AddTransactionProps {
 export function AddTransactionModal({ onClose, onSave, defaultMemberId }: AddTransactionProps) {
   const { state, addCategory } = useStore();
   const [type, setType] = useState<"income" | "expense">("expense");
+  const [status, setStatus] = useState<TxStatus>("pago");
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
@@ -263,7 +280,7 @@ export function AddTransactionModal({ onClose, onSave, defaultMemberId }: AddTra
           setSaving(true);
           await onSave({
             description: description.trim(), amount: v, date: isoDate,
-            type, categoryId, accountId, memberId,
+            type, categoryId, accountId, memberId, status,
           });
           onClose();
         }}
@@ -286,6 +303,33 @@ export function AddTransactionModal({ onClose, onSave, defaultMemberId }: AddTra
               {t === "income" ? "Receita" : "Despesa"}
             </button>
           ))}
+        </div>
+
+        {/* Status — Segmented Control */}
+        <div>
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1.5 block">Status</span>
+          <div className="flex gap-2 p-1 bg-white/5 rounded-lg">
+            {(["pago", "previsto"] as TxStatus[]).map((s) => (
+              <button
+                key={s} type="button"
+                onClick={() => setStatus(s)}
+                className={`flex-1 py-2 rounded-md text-xs font-medium transition-all flex items-center justify-center gap-1.5 ${
+                  status === s
+                    ? s === "pago"
+                      ? "bg-emerald/20 text-emerald"
+                      : "bg-amber/20 text-amber"
+                    : "text-muted-foreground"
+                }`}
+              >
+                {s === "pago" ? <><CheckCircle2 className="size-3" /> Pago</> : <><Clock className="size-3" /> Previsto</>}
+              </button>
+            ))}
+          </div>
+          {status === "previsto" && (
+            <p className="text-[10px] text-amber/80 mt-1.5 pl-1">
+              Lançamento previsto — não afeta o saldo até ser marcado como Pago.
+            </p>
+          )}
         </div>
 
         <Field label="Descrição">
