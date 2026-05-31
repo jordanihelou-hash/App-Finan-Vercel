@@ -2,10 +2,12 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useRef, useState } from "react";
 import { AppHeader } from "@/components/AppHeader";
 import { KpiCard } from "@/components/KpiCard";
-import { GeminiAdvisor } from "@/components/GeminiAdvisor";
+import { GeminiAdvisor, type GeminiAdvisorHandle } from "@/components/GeminiAdvisor";
 import { CashflowChart } from "@/components/CashflowChart";
 import { CategoryBudgetChart } from "@/components/CategoryBudgetChart";
 import { useStore, formatBRL } from "@/lib/store";
+import type { CategoryBreakdown, GoalProgress } from "@/lib/analysis-types";
+import { INVESTMENT_GOALS } from "@/lib/mock-data";
 
 export const Route = createFileRoute("/_app/")({
   component: Dashboard,
@@ -14,7 +16,7 @@ export const Route = createFileRoute("/_app/")({
 function Dashboard() {
   const { state } = useStore();
   const [view, setView] = useState<"unified" | "individual">("unified");
-  const advisorRef = useRef<{ triggerOverBudget: (cats: string[]) => void } | null>(null);
+  const advisorRef = useRef<GeminiAdvisorHandle | null>(null);
 
   const monthStart = useMemo(() => {
     const d = new Date();
@@ -23,7 +25,6 @@ function Dashboard() {
     return d;
   }, []);
 
-  // Filtra transações por modo (individual = só do usuário logado)
   const baseTx = useMemo(() => {
     if (view === "individual" && state.currentUserId) {
       return state.transactions.filter((t) => t.memberId === state.currentUserId);
@@ -40,11 +41,57 @@ function Dashboard() {
 
   const monthTx = baseTx.filter((t) => new Date(t.date) >= monthStart);
   const income = monthTx.filter((t) => t.type === "income").reduce((s, t) => s + t.amount, 0);
-  const expense = monthTx.filter((t) => t.type === "expense").reduce((s, t) => s + t.amount, 0);
+
+  // Separação bifásica: Pago vs Previsto
+  const paidExpense = monthTx
+    .filter((t) => t.type === "expense" && t.status === "pago")
+    .reduce((s, t) => s + t.amount, 0);
+  const forecastExpense = monthTx
+    .filter((t) => t.type === "expense" && t.status === "previsto")
+    .reduce((s, t) => s + t.amount, 0);
+  const expense = paidExpense + forecastExpense;
+
   const total = baseAccounts.reduce((s, a) => s + a.balance, 0);
   const invested = state.investments.reduce((s, i) => s + i.applied, 0);
 
-  // Dados do mês atual (dia a dia)
+  // ── Breakdown por categoria para a Ana ────────────────────────────────────
+  const categoryBreakdown = useMemo((): CategoryBreakdown[] => {
+    return state.categories
+      .filter((c) => c.type === "expense")
+      .map((cat) => {
+        const catTx = monthTx.filter((t) => t.categoryId === cat.id && t.type === "expense");
+        const paid = catTx.filter((t) => t.status === "pago").reduce((s, t) => s + t.amount, 0);
+        const forecast = catTx.filter((t) => t.status === "previsto").reduce((s, t) => s + t.amount, 0);
+        return {
+          name: cat.name,
+          group: (cat.group ?? "necessidades") as CategoryBreakdown["group"],
+          paid,
+          forecast,
+          budget: cat.budget,
+        };
+      })
+      .filter((c) => c.paid > 0 || c.forecast > 0);
+  }, [monthTx, state.categories]);
+
+  // ── Progresso de metas para a Ana ─────────────────────────────────────────
+  const goalProgress = useMemo((): GoalProgress[] => {
+    const goals = state.investmentGoals.length > 0 ? state.investmentGoals : INVESTMENT_GOALS;
+    return goals.map((g) => {
+      const invs = state.investments.filter((i) => i.goalId === g.id);
+      const applied = invs.reduce((s, i) => s + i.applied, 0);
+      const pct = g.targetAmount ? (applied / g.targetAmount) * 100 : undefined;
+      return {
+        name: g.name,
+        emoji: g.emoji,
+        applied,
+        target: g.targetAmount,
+        pct,
+        isProtective: g.id === "fundo_emergencial",
+      };
+    }).filter((g) => g.applied > 0 || g.isProtective);
+  }, [state.investments, state.investmentGoals]);
+
+  // ── Dados para o gráfico de cashflow ──────────────────────────────────────
   const chartData = useMemo(() => {
     const now = new Date();
     const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
@@ -61,7 +108,7 @@ function Dashboard() {
       const bucket = days.find((b) => b.date.getTime() === td.getTime());
       if (bucket) {
         if (t.type === "income") bucket.income += t.amount;
-        else bucket.expense += t.amount;
+        else if (t.status === "pago") bucket.expense += t.amount; // só pago no gráfico de fluxo
       }
     });
     return days;
@@ -78,7 +125,13 @@ function Dashboard() {
         <KpiCard label="Saldo Total" value={total} trend={view === "individual" ? "Seu saldo" : "+2.4% mês"} trendTone="up" />
         <KpiCard label="Investido" value={invested} accent="amber" trend="Carteira ativa" />
         <KpiCard label="Receitas" value={income} accent="emerald" trend="No mês" />
-        <KpiCard label="Despesas" value={expense} accent="coral" trend={expensePct} />
+        <KpiCard
+          label="Despesas"
+          value={expense}
+          accent="coral"
+          trend={expensePct}
+          subtitle={forecastExpense > 0 ? `R$ ${forecastExpense.toLocaleString("pt-BR", { minimumFractionDigits: 2 })} previsto` : undefined}
+        />
       </div>
 
       <CashflowChart
@@ -95,28 +148,35 @@ function Dashboard() {
         onOverBudget={(cats) => advisorRef.current?.triggerOverBudget(cats)}
       />
 
-      <GeminiAdvisor ref={advisorRef} income={income} expense={expense} invested={invested} />
+      <GeminiAdvisor
+        ref={advisorRef}
+        income={income}
+        paidExpense={paidExpense}
+        forecastExpense={forecastExpense}
+        invested={invested}
+        categoryBreakdown={categoryBreakdown}
+        goalProgress={goalProgress}
+      />
     </>
   );
 }
 
 function IndividualView() {
   const { state } = useStore();
-  // Filtro de mês atual (consistente com os KPIs do topo)
   const monthStart = useMemo(() => {
     const d = new Date();
     d.setDate(1);
     d.setHours(0, 0, 0, 0);
     return d;
   }, []);
-
   const now = new Date();
 
   return (
     <div className="flex flex-col gap-3 animate-fade-up">
-      <h2 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">Resumo por membro — mês atual</h2>
+      <h2 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
+        Resumo por membro — mês atual
+      </h2>
       {state.members.map((m) => {
-        // Só transações do mês atual
         const tx = state.transactions.filter((t) => {
           if (t.memberId !== m.id) return false;
           const td = new Date(t.date);
@@ -124,6 +184,8 @@ function IndividualView() {
         });
         const income = tx.filter((t) => t.type === "income").reduce((s, t) => s + t.amount, 0);
         const expense = tx.filter((t) => t.type === "expense").reduce((s, t) => s + t.amount, 0);
+        const paidExp = tx.filter((t) => t.type === "expense" && t.status === "pago").reduce((s, t) => s + t.amount, 0);
+        const forecastExp = tx.filter((t) => t.type === "expense" && t.status === "previsto").reduce((s, t) => s + t.amount, 0);
         const balance = state.accounts.filter((a) => a.memberId === m.id).reduce((s, a) => s + a.balance, 0);
         return (
           <div key={m.id} className="glass-card ring-1 ring-white/10 ring-inset-soft rounded-2xl p-5">
@@ -140,7 +202,8 @@ function IndividualView() {
               <Row label="Saldo" value={balance} />
               <Row label="Líquido" value={income - expense} tone={income - expense >= 0 ? "emerald" : "coral"} />
               <Row label="Receitas" value={income} tone="emerald" />
-              <Row label="Despesas" value={expense} tone="coral" />
+              <Row label="Desp. Pagas" value={paidExp} tone="coral" />
+              {forecastExp > 0 && <Row label="Desp. Previstas" value={forecastExp} tone="amber" />}
             </div>
           </div>
         );
@@ -149,8 +212,11 @@ function IndividualView() {
   );
 }
 
-function Row({ label, value, tone }: { label: string; value: number; tone?: "emerald" | "coral" }) {
-  const cls = tone === "emerald" ? "text-emerald" : tone === "coral" ? "text-coral" : "text-foreground";
+function Row({ label, value, tone }: { label: string; value: number; tone?: "emerald" | "coral" | "amber" }) {
+  const cls =
+    tone === "emerald" ? "text-emerald" :
+    tone === "coral"   ? "text-coral"   :
+    tone === "amber"   ? "text-amber"   : "text-foreground";
   return (
     <div className="bg-white/5 rounded-lg p-2.5">
       <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">{label}</p>
