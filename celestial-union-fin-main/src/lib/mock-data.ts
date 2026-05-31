@@ -7,6 +7,14 @@ export interface Member {
   initial: string;
 }
 
+/**
+ * Grupo 50/30/20:
+ *   necessidades  → teto 50% da renda (moradia, mercado, transporte, saúde…)
+ *   estilo_vida   → teto 30% (alimentação fora, lazer, assinaturas…)
+ *   (investimentos são calculados separadamente via módulo de metas)
+ */
+export type CategoryGroup = "necessidades" | "estilo_vida";
+
 export interface Category {
   id: string;
   name: string;
@@ -14,6 +22,8 @@ export interface Category {
   color: "violet" | "emerald" | "coral" | "amber" | "cyan";
   /** Teto mensal da categoria em R$ (opcional, usado no gráfico de extrapolação) */
   budget?: number;
+  /** Enquadramento na regra 50/30/20 (apenas despesas) */
+  group?: CategoryGroup;
 }
 
 export interface Account {
@@ -81,15 +91,15 @@ export const MEMBERS: Member[] = [
 ];
 
 export const CATEGORIES: Category[] = [
-  { id: "c1", name: "Salário", type: "income", color: "emerald" },
-  { id: "c2", name: "Freelance", type: "income", color: "emerald" },
-  { id: "c3", name: "Dividendos", type: "income", color: "cyan" },
-  { id: "c4", name: "Moradia", type: "expense", color: "violet", budget: 3500 },
-  { id: "c5", name: "Alimentação", type: "expense", color: "amber", budget: 600 },
-  { id: "c6", name: "Transporte", type: "expense", color: "coral", budget: 500 },
-  { id: "c7", name: "Lazer", type: "expense", color: "coral", budget: 300 },
-  { id: "c8", name: "Assinaturas", type: "expense", color: "violet", budget: 150 },
-  { id: "c9", name: "Mercado", type: "expense", color: "amber", budget: 1200 },
+  { id: "c1", name: "Salário",      type: "income",  color: "emerald" },
+  { id: "c2", name: "Freelance",    type: "income",  color: "emerald" },
+  { id: "c3", name: "Dividendos",   type: "income",  color: "cyan" },
+  { id: "c4", name: "Moradia",      type: "expense", color: "violet", budget: 3500, group: "necessidades" },
+  { id: "c5", name: "Alimentação",  type: "expense", color: "amber",  budget: 600,  group: "estilo_vida" },
+  { id: "c6", name: "Transporte",   type: "expense", color: "coral",  budget: 500,  group: "necessidades" },
+  { id: "c7", name: "Lazer",        type: "expense", color: "coral",  budget: 300,  group: "estilo_vida" },
+  { id: "c8", name: "Assinaturas",  type: "expense", color: "violet", budget: 150,  group: "estilo_vida" },
+  { id: "c9", name: "Mercado",      type: "expense", color: "amber",  budget: 1200, group: "necessidades" },
 ];
 
 export const ACCOUNTS: Account[] = [
