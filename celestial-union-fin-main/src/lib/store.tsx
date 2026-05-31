@@ -260,15 +260,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (event === "TOKEN_REFRESHED" && dataLoadedRef.current) return;
 
       if (!session) {
-        // Se o URL contém ?code= ou #access_token= (retorno do OAuth),
-        // aguarda o SIGNED_IN — o /auth/callback cuida disso; aqui apenas evita
-        // setar unauthenticated prematuramente e causar redirect ao login.
-        const isOAuthCallback =
-          typeof window !== "undefined" &&
-          (window.location.pathname === "/auth/callback" ||
-           window.location.search.includes("code=") ||
-           window.location.hash.includes("access_token="));
-        if (isOAuthCallback) return;
+        // Se há tokens OAuth no URL (retorno do Google), o SDK ainda está
+        // processando o code exchange — aguarda o SIGNED_IN antes de decidir.
+        if (typeof window !== "undefined") {
+          const h = window.location.hash;
+          const q = window.location.search;
+          if (h.includes("access_token=") || h.includes("refresh_token=") || q.includes("code=")) {
+            return; // Aguarda o SIGNED_IN
+          }
+        }
 
         clearSubscriptions();
         setState({ ...initialState, authState: "unauthenticated" });
