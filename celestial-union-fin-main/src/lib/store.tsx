@@ -33,10 +33,13 @@ import type {
   Account,
   Category,
   Transaction,
+  TxStatus,
   Investment,
   InvestmentMove,
+  InvestmentGoal,
   Member,
 } from "./mock-data";
+import { INVESTMENT_GOALS as DEFAULT_GOALS } from "./mock-data";
 
 // ── Type helpers (DB snake_case → TS camelCase) ───────────────────────────────
 
@@ -61,6 +64,7 @@ function dbToTransaction(row: Record<string, unknown>): Transaction {
     categoryId: row.category_id as string,
     memberId: row.member_id as string,
     accountId: row.account_id as string,
+    status: (row.status as TxStatus | undefined) ?? "pago",
   };
 }
 
@@ -73,6 +77,7 @@ function dbToInvestment(row: Record<string, unknown>): Investment {
     type: row.type as Investment["type"],
     applied: row.applied as number,
     projectedYield: row.projected_yield as number,
+    goalId: row.goal_id as string | undefined,
     moves: moves.map(
       (m): InvestmentMove => ({
         id: m.id as string,
@@ -97,6 +102,8 @@ interface State {
   accounts: Account[];
   transactions: Transaction[];
   investments: Investment[];
+  /** Metas de investimento do casal (locais + persistidas) */
+  investmentGoals: InvestmentGoal[];
   coupleCode: string;
   partnerLinked: boolean;
   authedEmail: string | null;
@@ -113,6 +120,7 @@ const initialState: State = {
   accounts: [],
   transactions: [],
   investments: [],
+  investmentGoals: DEFAULT_GOALS,
   coupleCode: "",
   partnerLinked: false,
   authedEmail: null,
@@ -129,6 +137,10 @@ interface StoreApi {
   state: State;
   addTransaction: (tx: Omit<Transaction, "id">) => void;
   deleteTransaction: (id: string) => Promise<void>;
+  /** Altera o status de uma transação (previsto → pago ou vice-versa) */
+  updateTransactionStatus: (id: string, status: TxStatus) => Promise<void>;
+  /** Adiciona uma nova meta de investimento */
+  addInvestmentGoal: (goal: Omit<InvestmentGoal, "id">) => string;
   /** Retorna o ID da nova categoria criada, ou null em caso de erro */
   addCategory: (c: Omit<Category, "id">) => Promise<string | null>;
   addAccount: (a: Omit<Account, "id">) => void;
@@ -496,6 +508,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           category_id: tx.categoryId,
           member_id: tx.memberId,
           account_id: tx.accountId,
+          status: tx.status ?? "pago",
         });
         if (error) {
           console.error("[Store] addTransaction:", error);
@@ -517,6 +530,26 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           refetchTransactions(state.coupleId),
           refetchAccounts(state.coupleId),
         ]);
+      },
+
+      updateTransactionStatus: async (id: string, status: TxStatus) => {
+        if (!state.coupleId) return;
+        // Atualização otimista local
+        setState((s) => ({
+          ...s,
+          transactions: s.transactions.map((t) =>
+            t.id === id ? { ...t, status } : t
+          ),
+        }));
+        const { error } = await supabase
+          .from("transactions")
+          .update({ status })
+          .eq("id", id);
+        if (error) {
+          console.error("[Store] updateTransactionStatus:", error);
+          // Reverte em caso de erro
+          await refetchTransactions(state.coupleId);
+        }
       },
 
       deleteTransaction: async (id: string) => {
@@ -589,6 +622,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           type: inv.type,
           applied: inv.applied ?? 0,
           projected_yield: inv.projectedYield ?? 0,
+          goal_id: inv.goalId ?? null,
         });
         if (error) {
           console.error("[Store] addInvestment:", error);
@@ -704,6 +738,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           .eq("id", state.coupleId);
         if (!error) setState((s) => ({ ...s, coupleCode: code }));
         else console.error("[Store] regenerateCode:", error);
+      },
+
+      addInvestmentGoal: (goal: Omit<InvestmentGoal, "id">) => {
+        const id = `goal_${Date.now()}`;
+        const newGoal: InvestmentGoal = { ...goal, id };
+        setState((s) => ({ ...s, investmentGoals: [...s.investmentGoals, newGoal] }));
+        return id;
       },
 
       login: (_email) => {
