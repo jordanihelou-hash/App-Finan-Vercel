@@ -1,19 +1,12 @@
 /**
  * /auth/callback — processa o retorno do OAuth do Google.
  *
- * Com PKCE (padrão do Supabase v2), o Google redireciona para:
- *   https://[project].supabase.co/auth/v1/callback?code=...
- * O Supabase então redireciona para o `redirectTo` configurado no signInWithOAuth,
- * que agora aponta para esta rota (/auth/callback) em vez da raiz (/).
- *
- * Supabase SDK com `detectSessionInUrl: true` troca o `?code=` por tokens
- * assim que o cliente é instanciado — essa rota apenas aguarda o evento
- * SIGNED_IN e redireciona para o app. Isso evita o race condition onde
- * o `/_app` recebia um INITIAL_SESSION null antes da troca do código,
- * causando o bounce de volta ao /login.
+ * O Supabase redireciona aqui com #access_token= (implicit) após autenticação.
+ * Usamos window.location.replace para fazer o redirect hard ao dashboard,
+ * evitando problemas com a navegação client-side do TanStack Router nesse contexto.
  */
 
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { Loader2, Sparkles } from "lucide-react";
 import { supabase } from "@/lib/supabase";
@@ -23,36 +16,45 @@ export const Route = createFileRoute("/auth/callback")({
 });
 
 function AuthCallback() {
-  const navigate = useNavigate();
-
   useEffect(() => {
-    // Aguarda a troca do código OAuth. O Supabase SDK processa o ?code=
-    // automaticamente; só precisamos esperar o evento de sessão.
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        if (event === "SIGNED_IN" && session) {
-          subscription.unsubscribe();
-          navigate({ to: "/" });
-        } else if (event === "INITIAL_SESSION" && session) {
-          // Sessão já estava ativa (ex: refresh da página nesta rota)
-          subscription.unsubscribe();
-          navigate({ to: "/" });
-        } else if (event === "INITIAL_SESSION" && !session) {
-          // Sem sessão e sem code na URL — redireciona para login
-          const hasCode = typeof window !== "undefined" &&
-            (window.location.search.includes("code=") ||
-             window.location.hash.includes("access_token="));
-          if (!hasCode) {
-            subscription.unsubscribe();
-            navigate({ to: "/login" });
-          }
-          // Se há code= na URL, fica aguardando o SIGNED_IN que virá em seguida
-        }
-      }
-    );
+    let cancelled = false;
 
-    return () => subscription.unsubscribe();
-  }, [navigate]);
+    async function redirect() {
+      // Tenta pegar a sessão que o SDK já processou do hash
+      const { data: { session } } = await supabase.auth.getSession();
+      if (cancelled) return;
+
+      if (session) {
+        window.location.replace("/");
+        return;
+      }
+
+      // Fallback: aguarda SIGNED_IN (PKCE assíncrono) por até 10s
+      const timeout = setTimeout(() => {
+        if (!cancelled) window.location.replace("/login");
+      }, 10_000);
+
+      const { data: { subscription } } = supabase.auth.onAuthStateChange(
+        (event, s) => {
+          if (cancelled) return;
+          if ((event === "SIGNED_IN" || event === "INITIAL_SESSION") && s) {
+            clearTimeout(timeout);
+            subscription.unsubscribe();
+            window.location.replace("/");
+          }
+        }
+      );
+
+      return () => {
+        clearTimeout(timeout);
+        subscription.unsubscribe();
+      };
+    }
+
+    redirect();
+
+    return () => { cancelled = true; };
+  }, []);
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center">
