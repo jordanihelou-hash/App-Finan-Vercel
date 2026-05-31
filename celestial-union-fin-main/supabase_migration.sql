@@ -19,9 +19,20 @@ ALTER TABLE investments
 -- 4. (Opcional) Índice para buscas por goal
 CREATE INDEX IF NOT EXISTS idx_investments_goal_id ON investments(goal_id);
 
+-- ============================================================
+-- Migração 2: grupos e orçamento nas categorias
+-- ============================================================
+
+-- 5. Adiciona group (enquadramento 50/30/20) e budget nas categorias
+ALTER TABLE categories
+  ADD COLUMN IF NOT EXISTS group TEXT CHECK (group IN ('necessidades', 'estilo_vida'));
+
+ALTER TABLE categories
+  ADD COLUMN IF NOT EXISTS budget NUMERIC;
+
 -- Verificação
 SELECT column_name, data_type, column_default
 FROM information_schema.columns
-WHERE table_name IN ('transactions', 'investments')
-  AND column_name IN ('status', 'goal_id')
+WHERE table_name IN ('transactions', 'investments', 'categories')
+  AND column_name IN ('status', 'goal_id', 'group', 'budget')
 ORDER BY table_name, column_name;
