@@ -6,6 +6,8 @@ interface Props {
   accent?: "default" | "emerald" | "coral" | "amber" | "cyan";
   trend?: string;
   trendTone?: "up" | "down" | "neutral";
+  /** Linha adicional abaixo do trend (ex: "R$ 800 previsto") */
+  subtitle?: string;
 }
 
 const accentClass: Record<NonNullable<Props["accent"]>, string> = {
@@ -16,7 +18,7 @@ const accentClass: Record<NonNullable<Props["accent"]>, string> = {
   cyan: "text-cyan",
 };
 
-export function KpiCard({ label, value, accent = "default", trend, trendTone = "neutral" }: Props) {
+export function KpiCard({ label, value, accent = "default", trend, trendTone = "neutral", subtitle }: Props) {
   const tone =
     trendTone === "up" ? "text-emerald" : trendTone === "down" ? "text-coral" : "text-muted-foreground";
   return (
@@ -28,6 +30,7 @@ export function KpiCard({ label, value, accent = "default", trend, trendTone = "
         {formatBRL(value)}
       </div>
       {trend && <div className={`mt-2 text-[10px] ${tone}`}>{trend}</div>}
+      {subtitle && <div className="mt-0.5 text-[9px] text-amber/80">{subtitle}</div>}
     </div>
   );
 }
