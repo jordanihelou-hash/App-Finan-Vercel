@@ -2,8 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { AppHeader } from "@/components/AppHeader";
 import { useStore, formatBRL } from "@/lib/store";
-import { TrendingUp, Plus, Minus, Trash2 } from "lucide-react";
-import type { Investment } from "@/lib/mock-data";
+import { TrendingUp, Plus, Minus, Trash2, Target, ChevronDown, ChevronRight } from "lucide-react";
+import type { Investment, InvestmentGoal } from "@/lib/mock-data";
 import { Sheet } from "./_app.transactions";
 
 export const Route = createFileRoute("/_app/investments")({
@@ -27,13 +27,24 @@ function InvestmentsPage() {
   const [activeMove, setActiveMove] = useState<{ inv: Investment; kind: "aporte" | "resgate" } | null>(null);
   const [showAddInv, setShowAddInv] = useState(false);
   const [confirmDeleteInv, setConfirmDeleteInv] = useState<Investment | null>(null);
+  const [collapsedGoals, setCollapsedGoals] = useState<Set<string>>(new Set());
+
+  const toggleGoal = (goalId: string) => {
+    setCollapsedGoals((prev) => {
+      const next = new Set(prev);
+      next.has(goalId) ? next.delete(goalId) : next.add(goalId);
+      return next;
+    });
+  };
 
   const total = state.investments.reduce((s, i) => s + i.applied, 0);
   const filtered = filter === "Todos" ? state.investments : state.investments.filter((i) => i.type === filter);
-  // Fix: evitar NaN quando não há investimentos
   const avgYield = state.investments.length > 0
     ? state.investments.reduce((s, i) => s + i.projectedYield, 0) / state.investments.length
     : 0;
+
+  // Agrupa investimentos filtrados por meta
+  const goalGroups = groupByGoal(filtered, state.investmentGoals);
 
   return (
     <>
@@ -108,7 +119,7 @@ function InvestmentsPage() {
             <TrendingUp className="size-7 text-emerald" />
           </div>
           <p className="text-sm font-medium">Nenhum investimento cadastrado</p>
-          <p className="text-xs text-muted-foreground">Registre seus ativos para acompanhar o patrimônio investido do casal.</p>
+          <p className="text-xs text-muted-foreground">Registre seus ativos vinculados a uma meta para acompanhar o patrimônio do casal.</p>
           <button
             onClick={() => setShowAddInv(true)}
             className="mt-2 px-4 py-2 bg-primary text-primary-foreground text-xs font-semibold rounded-xl glow-violet"
@@ -118,62 +129,101 @@ function InvestmentsPage() {
         </div>
       )}
 
-      <div className="flex flex-col gap-3">
-        {filtered.map((inv, i) => (
-          <div
-            key={inv.id}
-            className="glass-card ring-1 ring-white/10 ring-inset-soft rounded-2xl p-4 animate-fade-up"
-            style={{ animationDelay: `${i * 40}ms` }}
-          >
-            <div className="flex items-start justify-between mb-3">
-              <div className="flex items-center gap-3 min-w-0">
-                <div className={`size-10 rounded-xl grid place-items-center shrink-0 ${typeColor[inv.type]}`}>
-                  <TrendingUp className="size-5" />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-medium truncate">{inv.name}</p>
-                  <p className="text-[11px] text-muted-foreground truncate">
-                    {inv.type}{inv.ticker && <> · <span className="mono">{inv.ticker}</span></>}
-                  </p>
-                </div>
-              </div>
-              <span className="text-emerald text-xs mono font-medium shrink-0 ml-2">+{inv.projectedYield}%</span>
-            </div>
+      {/* Grupos por Meta */}
+      <div className="flex flex-col gap-4">
+        {goalGroups.map(({ goal, investments: invs }) => {
+          const groupTotal = invs.reduce((s, i) => s + i.applied, 0);
+          const progress = goal.targetAmount ? Math.min(100, (groupTotal / goal.targetAmount) * 100) : null;
+          const isCollapsed = collapsedGoals.has(goal.id);
 
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Aplicado</p>
-                <p className="mono text-base font-medium mt-0.5">{formatBRL(inv.applied)}</p>
-              </div>
-              <div>
-                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Movim.</p>
-                <p className="mono text-base font-medium mt-0.5">{inv.moves.length}</p>
-              </div>
-            </div>
+          return (
+            <div key={goal.id} className="flex flex-col gap-2 animate-fade-up">
+              {/* Cabeçalho do grupo de meta */}
+              <button
+                type="button"
+                onClick={() => toggleGoal(goal.id)}
+                className="flex items-center gap-2 py-1 text-left w-full"
+              >
+                <span className="text-base">{goal.emoji}</span>
+                <span className="text-xs font-semibold text-foreground flex-1">{goal.name}</span>
+                <span className="mono text-[11px] text-muted-foreground">{formatBRL(groupTotal)}</span>
+                {isCollapsed ? <ChevronRight className="size-3.5 text-muted-foreground" /> : <ChevronDown className="size-3.5 text-muted-foreground" />}
+              </button>
 
-            <div className="mt-3 flex gap-2">
-              <button
-                onClick={() => setActiveMove({ inv, kind: "aporte" })}
-                className="flex-1 py-2 text-xs font-medium rounded-lg bg-emerald/15 text-emerald ring-1 ring-emerald/30 flex items-center justify-center gap-1.5 active:scale-95 transition"
-              >
-                <Plus className="size-3.5" /> Aporte
-              </button>
-              <button
-                onClick={() => setActiveMove({ inv, kind: "resgate" })}
-                className="flex-1 py-2 text-xs font-medium rounded-lg bg-coral/15 text-coral ring-1 ring-coral/30 flex items-center justify-center gap-1.5 active:scale-95 transition"
-              >
-                <Minus className="size-3.5" /> Resgate
-              </button>
-              <button
-                onClick={() => setConfirmDeleteInv(inv)}
-                aria-label="Excluir investimento"
-                className="size-8 rounded-lg grid place-items-center bg-white/5 text-muted-foreground ring-1 ring-white/10 hover:bg-coral/15 hover:text-coral hover:ring-coral/30 active:scale-95 transition"
-              >
-                <Trash2 className="size-3.5" />
-              </button>
+              {/* Barra de progresso da meta */}
+              {progress !== null && (
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 h-1.5 bg-white/5 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-primary/60 rounded-full transition-all duration-500"
+                      style={{ width: `${progress}%` }}
+                    />
+                  </div>
+                  <span className="text-[10px] text-muted-foreground mono shrink-0">
+                    {progress.toFixed(0)}% de {formatBRL(goal.targetAmount!)}
+                  </span>
+                </div>
+              )}
+
+              {/* Cards de investimento */}
+              {!isCollapsed && invs.map((inv, i) => (
+                <div
+                  key={inv.id}
+                  className="glass-card ring-1 ring-white/10 ring-inset-soft rounded-2xl p-4 animate-fade-up ml-2"
+                  style={{ animationDelay: `${i * 40}ms` }}
+                >
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className={`size-10 rounded-xl grid place-items-center shrink-0 ${typeColor[inv.type]}`}>
+                        <TrendingUp className="size-5" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">{inv.name}</p>
+                        <p className="text-[11px] text-muted-foreground truncate">
+                          {inv.type}{inv.ticker && <> · <span className="mono">{inv.ticker}</span></>}
+                        </p>
+                      </div>
+                    </div>
+                    <span className="text-emerald text-xs mono font-medium shrink-0 ml-2">+{inv.projectedYield}%</span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Aplicado</p>
+                      <p className="mono text-base font-medium mt-0.5">{formatBRL(inv.applied)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Movim.</p>
+                      <p className="mono text-base font-medium mt-0.5">{inv.moves.length}</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 flex gap-2">
+                    <button
+                      onClick={() => setActiveMove({ inv, kind: "aporte" })}
+                      className="flex-1 py-2 text-xs font-medium rounded-lg bg-emerald/15 text-emerald ring-1 ring-emerald/30 flex items-center justify-center gap-1.5 active:scale-95 transition"
+                    >
+                      <Plus className="size-3.5" /> Aporte
+                    </button>
+                    <button
+                      onClick={() => setActiveMove({ inv, kind: "resgate" })}
+                      className="flex-1 py-2 text-xs font-medium rounded-lg bg-coral/15 text-coral ring-1 ring-coral/30 flex items-center justify-center gap-1.5 active:scale-95 transition"
+                    >
+                      <Minus className="size-3.5" /> Resgate
+                    </button>
+                    <button
+                      onClick={() => setConfirmDeleteInv(inv)}
+                      aria-label="Excluir investimento"
+                      className="size-8 rounded-lg grid place-items-center bg-white/5 text-muted-foreground ring-1 ring-white/10 hover:bg-coral/15 hover:text-coral hover:ring-coral/30 active:scale-95 transition"
+                    >
+                      <Trash2 className="size-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {activeMove && <MoveModal data={activeMove} onClose={() => setActiveMove(null)} />}
@@ -212,16 +262,61 @@ function InvestmentsPage() {
   );
 }
 
+// ── Helper: agrupar investimentos por meta ────────────────────────────────────
+
+const NO_GOAL_ID = "__sem_meta__";
+const NO_GOAL: InvestmentGoal = { id: NO_GOAL_ID, name: "Sem Meta Definida", emoji: "📌" };
+
+function groupByGoal(
+  investments: Investment[],
+  goals: InvestmentGoal[]
+): { goal: InvestmentGoal; investments: Investment[] }[] {
+  const map = new Map<string, { goal: InvestmentGoal; investments: Investment[] }>();
+
+  investments.forEach((inv) => {
+    const gid = inv.goalId ?? NO_GOAL_ID;
+    if (!map.has(gid)) {
+      const goal = goals.find((g) => g.id === gid) ?? NO_GOAL;
+      map.set(gid, { goal, investments: [] });
+    }
+    map.get(gid)!.investments.push(inv);
+  });
+
+  return Array.from(map.values());
+}
+
 // ── Modal: Novo Investimento ──────────────────────────────────────────────────
 
 function AddInvestmentModal({ onClose }: { onClose: () => void }) {
-  const { addInvestment } = useStore();
+  const { addInvestment, addInvestmentGoal, state } = useStore();
   const [name, setName] = useState("");
   const [ticker, setTicker] = useState("");
   const [type, setType] = useState<Investment["type"]>("Renda Fixa");
   const [applied, setApplied] = useState("");
   const [projectedYield, setProjectedYield] = useState("");
+  const [goalId, setGoalId] = useState(state.investmentGoals[0]?.id ?? "");
+  const [showNewGoal, setShowNewGoal] = useState(false);
+  const [newGoalName, setNewGoalName] = useState("");
+  const [newGoalEmoji, setNewGoalEmoji] = useState("🎯");
+  const [newGoalTarget, setNewGoalTarget] = useState("");
   const [saving, setSaving] = useState(false);
+
+  function handleGoalChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    if (e.target.value === "__new__") {
+      setShowNewGoal(true);
+    } else {
+      setGoalId(e.target.value);
+      setShowNewGoal(false);
+    }
+  }
+
+  function createNewGoal() {
+    if (!newGoalName.trim()) return;
+    const target = parseFloat(newGoalTarget.replace(",", ".")) || undefined;
+    const id = addInvestmentGoal({ name: newGoalName.trim(), emoji: newGoalEmoji, targetAmount: target });
+    setGoalId(id);
+    setShowNewGoal(false);
+  }
 
   return (
     <Sheet onClose={onClose} title="Novo Investimento">
@@ -238,6 +333,7 @@ function AddInvestmentModal({ onClose }: { onClose: () => void }) {
             type,
             applied: ap,
             projectedYield: py,
+            goalId: goalId || undefined,
           });
           onClose();
         }}
@@ -253,6 +349,60 @@ function AddInvestmentModal({ onClose }: { onClose: () => void }) {
           <select className={inputCls} value={type} onChange={(e) => setType(e.target.value as Investment["type"])}>
             {TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
+        </label>
+
+        {/* Meta vinculada */}
+        <label className="block">
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1.5 block flex items-center gap-1">
+            <Target className="size-3" /> Meta *
+          </span>
+          {showNewGoal ? (
+            <div className="space-y-2 p-3 bg-white/5 rounded-lg ring-1 ring-primary/20">
+              <p className="text-[10px] uppercase tracking-wider text-primary font-semibold">Nova Meta</p>
+              <div className="flex gap-2">
+                <input
+                  className={inputCls + " w-12 text-center text-lg"}
+                  value={newGoalEmoji}
+                  onChange={(e) => setNewGoalEmoji(e.target.value)}
+                  placeholder="🎯"
+                  maxLength={2}
+                />
+                <input
+                  className={inputCls + " flex-1"}
+                  value={newGoalName}
+                  onChange={(e) => setNewGoalName(e.target.value)}
+                  placeholder="Nome da meta"
+                  autoFocus
+                />
+              </div>
+              <input
+                className={inputCls + " mono"}
+                value={newGoalTarget}
+                onChange={(e) => setNewGoalTarget(e.target.value)}
+                placeholder="Valor-alvo R$ (opcional)"
+                inputMode="decimal"
+              />
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={createNewGoal}
+                  className="flex-1 py-2 bg-primary/20 text-primary rounded-lg text-xs font-medium"
+                >
+                  Criar Meta
+                </button>
+                <button type="button" onClick={() => setShowNewGoal(false)} className="flex-1 py-2 bg-white/5 text-muted-foreground rounded-lg text-xs">
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          ) : (
+            <select className={inputCls} value={goalId} onChange={handleGoalChange}>
+              {state.investmentGoals.map((g) => (
+                <option key={g.id} value={g.id}>{g.emoji} {g.name}</option>
+              ))}
+              <option value="__new__">+ Criar nova meta…</option>
+            </select>
+          )}
         </label>
 
         <label className="block">
@@ -272,7 +422,7 @@ function AddInvestmentModal({ onClose }: { onClose: () => void }) {
 
         <button
           type="submit"
-          disabled={saving || !name.trim()}
+          disabled={saving || !name.trim() || showNewGoal}
           className="w-full py-3 bg-primary text-primary-foreground font-semibold text-sm rounded-xl glow-violet disabled:opacity-60 flex items-center justify-center gap-2"
         >
           {saving && <span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
