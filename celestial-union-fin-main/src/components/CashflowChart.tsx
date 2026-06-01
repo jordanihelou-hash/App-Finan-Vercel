@@ -115,7 +115,7 @@ function CurrentMonthChart({ data }: { data: DayBucket[] }) {
       </div>
 
       {/* Bar chart — horizontally scrollable so all days (incl. 30/31) are visible */}
-      <div className="w-full overflow-x-auto pb-1">
+      <div className="w-full overflow-x-auto pb-1 [&::-webkit-scrollbar]:hidden [scrollbar-width:none] [-ms-overflow-style:none]">
         <div
           className="flex items-end gap-[3px] h-[160px]"
           style={{ minWidth: monthData.length > 0 ? `${monthData.length * 18}px` : undefined }}

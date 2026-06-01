@@ -137,6 +137,8 @@ interface StoreApi {
   state: State;
   addTransaction: (tx: Omit<Transaction, "id">) => void;
   deleteTransaction: (id: string) => Promise<void>;
+  /** Edita os campos de uma transação existente, ajustando saldo da conta se necessário */
+  updateTransaction: (id: string, changes: Partial<Omit<Transaction, "id">>) => Promise<void>;
   /** Altera o status de uma transação (previsto → pago ou vice-versa) */
   updateTransactionStatus: (id: string, status: TxStatus) => Promise<void>;
   /** Adiciona uma nova meta de investimento */
@@ -548,6 +550,51 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           refetchTransactions(state.coupleId),
           refetchAccounts(state.coupleId),
         ]);
+      },
+
+      updateTransaction: async (id: string, changes: Partial<Omit<Transaction, "id">>) => {
+        if (!state.coupleId) return;
+        const old = state.transactions.find((t) => t.id === id);
+        if (!old) return;
+
+        // Ajusta saldo da conta se amount, type, status ou accountId mudou
+        const newAmount = changes.amount ?? old.amount;
+        const newType = changes.type ?? old.type;
+        const newStatus = changes.status ?? old.status;
+        const newAccountId = changes.accountId ?? old.accountId;
+
+        // Reverte efeito antigo (se era pago)
+        if ((old.status ?? "pago") === "pago" && old.accountId) {
+          const acc = state.accounts.find((a) => a.id === old.accountId);
+          if (acc) {
+            const revert = old.type === "income" ? -old.amount : old.amount;
+            await supabase.from("accounts").update({ balance: acc.balance + revert }).eq("id", old.accountId);
+          }
+        }
+
+        // Aplica novo efeito (se novo status for pago)
+        if (newStatus === "pago" && newAccountId) {
+          // Re-fetch account balance after revert
+          const { data: accData } = await supabase.from("accounts").select("balance").eq("id", newAccountId).single();
+          if (accData) {
+            const apply = newType === "income" ? newAmount : -newAmount;
+            await supabase.from("accounts").update({ balance: (accData.balance as number) + apply }).eq("id", newAccountId);
+          }
+        }
+
+        const { error } = await supabase.from("transactions").update({
+          ...(changes.description !== undefined && { description: changes.description }),
+          ...(changes.amount !== undefined && { amount: changes.amount }),
+          ...(changes.date !== undefined && { date: changes.date }),
+          ...(changes.type !== undefined && { type: changes.type }),
+          ...(changes.categoryId !== undefined && { category_id: changes.categoryId }),
+          ...(changes.accountId !== undefined && { account_id: changes.accountId }),
+          ...(changes.memberId !== undefined && { member_id: changes.memberId }),
+          ...(changes.status !== undefined && { status: changes.status }),
+        }).eq("id", id);
+
+        if (error) console.error("[Store] updateTransaction:", error);
+        await Promise.all([refetchTransactions(state.coupleId), refetchAccounts(state.coupleId)]);
       },
 
       updateTransactionStatus: async (id: string, status: TxStatus) => {

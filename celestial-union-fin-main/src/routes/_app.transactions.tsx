@@ -10,11 +10,12 @@ export const Route = createFileRoute("/_app/transactions")({
 });
 
 function TransactionsPage() {
-  const { state, addTransaction, deleteTransaction, addCategory, updateCategory, deleteCategory, updateTransactionStatus } = useStore();
+  const { state, addTransaction, deleteTransaction, updateTransaction, addCategory, updateCategory, deleteCategory, updateTransactionStatus } = useStore();
   const [view, setView] = useState<"unified" | "individual">("unified");
   const [query, setQuery] = useState("");
   const [showCat, setShowCat] = useState(false);
   const [editCat, setEditCat] = useState<Category | null>(null);
+  const [editTx, setEditTx] = useState<Transaction | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Transaction | null>(null);
 
   const filtered = useMemo(() => {
@@ -113,7 +114,7 @@ function TransactionsPage() {
                       {cat?.name}{member && view === "unified" ? ` · ${member.name}` : ""}
                     </p>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex items-center gap-1.5 shrink-0">
                     {/* Badge / toggle de status */}
                     <button
                       onClick={() => updateTransactionStatus(t.id, t.status === "pago" ? "previsto" : "pago")}
@@ -131,6 +132,13 @@ function TransactionsPage() {
                     <span className={`mono text-sm font-semibold ${t.type === "income" ? "text-emerald" : "text-coral"}`}>
                       {t.type === "income" ? "+" : "−"}{formatBRL(t.amount)}
                     </span>
+                    <button
+                      onClick={() => setEditTx(t)}
+                      aria-label="Editar lançamento"
+                      className="size-7 rounded-lg grid place-items-center text-muted-foreground hover:text-primary hover:bg-primary/10 transition-all opacity-0 group-hover:opacity-100"
+                    >
+                      <Pencil className="size-3.5" />
+                    </button>
                     <button
                       onClick={() => setConfirmDelete(t)}
                       aria-label="Excluir lançamento"
@@ -153,6 +161,14 @@ function TransactionsPage() {
         onEdit={(c) => setEditCat(c)}
         onDelete={deleteCategory}
       />
+
+      {editTx && (
+        <EditTransactionModal
+          transaction={editTx}
+          onClose={() => setEditTx(null)}
+          onSave={async (changes) => { await updateTransaction(editTx.id, changes); setEditTx(null); }}
+        />
+      )}
 
       {showCat && <AddCategoryModal onClose={() => setShowCat(false)} onSave={addCategory} />}
       {editCat && (
@@ -832,6 +848,144 @@ function AddCategoryModal({ onClose, onSave }: { onClose: () => void; onSave: Re
         </Field>
         <button type="submit" className="w-full py-3 bg-primary text-primary-foreground font-semibold text-sm rounded-xl glow-violet">
           Criar Categoria
+        </button>
+      </form>
+    </Sheet>
+  );
+}
+
+// ── EditTransactionModal ──────────────────────────────────────────────────────
+
+interface EditTransactionProps {
+  transaction: Transaction;
+  onClose: () => void;
+  onSave: (changes: Partial<Omit<Transaction, "id">>) => Promise<void>;
+}
+
+export function EditTransactionModal({ transaction: tx, onClose, onSave }: EditTransactionProps) {
+  const { state } = useStore();
+  const [type, setType] = useState<"income" | "expense">(tx.type);
+  const [status, setStatus] = useState<TxStatus>(tx.status ?? "pago");
+  const [description, setDescription] = useState(tx.description);
+  const [amount, setAmount] = useState(String(tx.amount));
+  const [date, setDate] = useState(tx.date.slice(0, 10));
+  const [categoryId, setCategoryId] = useState(tx.categoryId);
+  const [accountId, setAccountId] = useState(tx.accountId ?? "");
+  const [memberId, setMemberId] = useState(tx.memberId);
+  const [saving, setSaving] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
+
+  const cats = state.categories.filter((c) => c.type === type);
+
+  return (
+    <Sheet onClose={onClose} title="Editar Lançamento">
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (saving) return;
+          setValidationError(null);
+          const v = parseFloat(amount.replace(",", "."));
+          if (!description.trim()) { setValidationError("Informe uma descrição."); return; }
+          if (!v || v <= 0) { setValidationError("Informe um valor válido maior que zero."); return; }
+          if (!categoryId) { setValidationError("Selecione uma categoria."); return; }
+          setSaving(true);
+          await onSave({
+            description: description.trim(),
+            amount: v,
+            date: new Date(`${date}T12:00:00`).toISOString(),
+            type,
+            categoryId,
+            accountId: accountId || undefined,
+            memberId,
+            status,
+          });
+        }}
+        className="space-y-4"
+      >
+        {/* Tipo */}
+        <div className="flex gap-2 p-1 bg-white/5 rounded-lg">
+          {(["expense", "income"] as const).map((t) => (
+            <button
+              key={t} type="button"
+              onClick={() => { setType(t); setCategoryId(state.categories.find((c) => c.type === t)?.id ?? ""); }}
+              className={`flex-1 py-2 rounded-md text-xs font-medium transition-all ${
+                type === t ? (t === "income" ? "bg-emerald/20 text-emerald" : "bg-coral/20 text-coral") : "text-muted-foreground"
+              }`}
+            >
+              {t === "income" ? "Receita" : "Despesa"}
+            </button>
+          ))}
+        </div>
+
+        {/* Status */}
+        <div>
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1.5 block">Status</span>
+          <div className="flex gap-2 p-1 bg-white/5 rounded-lg">
+            {(["pago", "previsto"] as TxStatus[]).map((s) => (
+              <button
+                key={s} type="button" onClick={() => setStatus(s)}
+                className={`flex-1 py-2 rounded-md text-xs font-medium transition-all flex items-center justify-center gap-1.5 ${
+                  status === s
+                    ? s === "pago" ? "bg-emerald/20 text-emerald" : "bg-amber/20 text-amber"
+                    : "text-muted-foreground"
+                }`}
+              >
+                {s === "pago" ? <><CheckCircle2 className="size-3" /> Pago</> : <><Clock className="size-3" /> Previsto</>}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <Field label="Descrição">
+          <input className={inputCls} value={description} onChange={(e) => setDescription(e.target.value)} />
+        </Field>
+
+        <Field label="Valor (R$)">
+          <input className={inputCls + " mono"} value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" />
+        </Field>
+
+        <Field label="Data">
+          <input type="date" className={inputCls + " [color-scheme:dark]"} value={date} onChange={(e) => setDate(e.target.value)} />
+        </Field>
+
+        <Field label="Categoria">
+          <select className={inputCls} value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+            {cats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </Field>
+
+        <Field label="Conta">
+          <select className={inputCls} value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+            {state.accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </select>
+        </Field>
+
+        <Field label="Parceiro">
+          <div className="flex gap-2">
+            {state.members.map((m) => (
+              <button
+                key={m.id} type="button" onClick={() => setMemberId(m.id)}
+                className={`flex-1 py-2 rounded-lg text-xs font-medium ring-1 transition-all ${
+                  memberId === m.id ? "bg-primary/20 text-primary ring-primary/40" : "ring-white/10 text-muted-foreground"
+                }`}
+              >
+                {m.name}
+              </button>
+            ))}
+          </div>
+        </Field>
+
+        {validationError && (
+          <p className="text-[11px] text-coral p-2.5 bg-coral/10 ring-1 ring-coral/20 rounded-lg">{validationError}</p>
+        )}
+
+        <button
+          type="submit"
+          disabled={saving}
+          className="w-full py-3 bg-primary text-primary-foreground font-semibold text-sm rounded-xl glow-violet disabled:opacity-50 flex items-center justify-center gap-2"
+        >
+          {saving && <span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
+          {saving ? "Salvando…" : "Salvar alterações"}
         </button>
       </form>
     </Sheet>
