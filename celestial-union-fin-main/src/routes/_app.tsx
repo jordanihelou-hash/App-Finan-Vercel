@@ -1,5 +1,5 @@
 import { createFileRoute, Outlet, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BottomNav } from "@/components/BottomNav";
 import { StoreProvider, useStore } from "@/lib/store";
 import { Loader2, Plus } from "lucide-react";
@@ -29,6 +29,18 @@ function AuthGuard() {
   const navigate = useNavigate();
   const [showAdd, setShowAdd] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
+  const [slowLoad, setSlowLoad] = useState(false);
+  const slowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (state.authState === "loading") {
+      slowTimerRef.current = setTimeout(() => setSlowLoad(true), 10_000);
+    } else {
+      setSlowLoad(false);
+      if (slowTimerRef.current) clearTimeout(slowTimerRef.current);
+    }
+    return () => { if (slowTimerRef.current) clearTimeout(slowTimerRef.current); };
+  }, [state.authState]);
 
   useEffect(() => {
     if (state.authState === "unauthenticated") {
@@ -55,10 +67,15 @@ function AuthGuard() {
 
   if (state.authState === "loading") {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
+      <div className="min-h-screen bg-background flex items-center justify-center px-6">
+        <div className="flex flex-col items-center gap-4 text-center">
           <Loader2 className="size-8 text-primary animate-spin" />
           <p className="text-sm text-muted-foreground">Carregando…</p>
+          {slowLoad && (
+            <p className="text-xs text-muted-foreground/70 max-w-xs leading-relaxed animate-fade-up">
+              Iniciando o banco de dados… isso pode levar até 30s na primeira abertura do dia.
+            </p>
+          )}
         </div>
       </div>
     );

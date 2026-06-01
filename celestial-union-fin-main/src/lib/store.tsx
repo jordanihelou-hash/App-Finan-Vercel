@@ -489,9 +489,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  // Timeout de segurança: se auth não resolver em 30s, redireciona para login.
-  // Isso previne o spinner infinito quando as env vars do Supabase não estão configuradas.
-  // 30s para cobrir cold starts do Supabase free tier (que pode demorar 15-20s).
+  // Timeout de segurança: se auth não resolver em 90s, redireciona para login.
+  // Supabase free tier pode levar 30-60s no cold start (primeira requisição após inatividade).
+  // 90s garante que o cold start complete antes de forçar logout.
   useEffect(() => {
     const t = setTimeout(() => {
       setState((s) => {
@@ -501,7 +501,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
         return s;
       });
-    }, 30_000);
+    }, 90_000);
     return () => clearTimeout(t);
   }, []);
 
