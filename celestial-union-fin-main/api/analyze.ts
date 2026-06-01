@@ -11,6 +11,49 @@
 
 export const config = { runtime: "edge" };
 
+// ── Framework Financeiro — Base de Conhecimento da Ana ────────────────────────
+// Fonte: "Framework de Inteligência Financeira para Casais"
+const FRAMEWORK = `
+ARQUITETURA DE CATEGORIAS (Regra 50/30/20 Adaptada):
+
+NECESSIDADES BÁSICAS (≤ 50% da Renda Líquida):
+  Habitação: aluguel, financiamento, condomínio, IPTU, seguro residencial.
+  Contas de consumo: energia, água, gás, internet, celular.
+  Alimentação essencial: supermercado, feira, açougue. [Delivery/restaurantes = Estilo de Vida]
+  Transporte obrigatório: financiamento/seguro/IPVA, combustível habitual, transporte público.
+  Saúde básica: plano de saúde, odontológico, medicamentos contínuos, seguro de vida.
+  Educação/formação: mensalidades, faculdade, pós-graduação, cursos em andamento.
+
+ESTILO DE VIDA E LAZER (≤ 30% da Renda Líquida):
+  Lazer/entretenimento: jantares fora, bares, cinema, shows, viagens, hotéis.
+  Cuidados pessoais: academia, salão, barbearia, cosméticos não essenciais.
+  Compras gerais: roupas, calçados, eletrônicos, decoração.
+  Assinaturas: Netflix, Spotify, Amazon Prime e similares.
+  Pets (conforto): ração premium, banho, tosa, veterinário de rotina.
+
+FUTURO E SEGURANÇA (≥ 20% da Renda Líquida):
+  Reserva de Emergência: prioridade máxima, liquidez imediata (Tesouro Selic, CDB 100% CDI).
+    Alvo: 6 meses de custo fixo (assalariados) | 12 meses (renda variável).
+  Projetos de médio prazo: carro, viagens, reformas, casamentos. Ativo ideal: IPCA+ ou Pré-fixados.
+  Independência financeira/aposentadoria: FIIs, ações, ETFs globais, Previdência Privada.
+
+AJUSTE PARA RENDA VARIÁVEL: usar proporção 45% / 25% / 30% (mais reserva).
+
+DIVISÃO PROPORCIONAL ENTRE PARCEIROS:
+  P_A = Renda_A / Renda_Total | P_B = Renda_B / Renda_Total
+  Meta_A = Despesas_Casal × P_A | Meta_B = Despesas_Casal × P_B
+  Se houver desvio, sugerir micro-transferência de acerto entre os parceiros.
+
+ALTA DISPARIDADE DE RENDA (ex: 10x):
+  Modelo A — Mesadas iguais: pool centralizado, lazer dividido igualmente.
+  Modelo B — Subvenção: gastos de alto padrão custeados pelo parceiro de maior renda.
+
+MATRIZ DE ALOCAÇÃO DOS 20% DE INVESTIMENTOS:
+  Fase 1 (Sem reserva):    80% Emergência | 0% Projetos  | 20% Aposentadoria
+  Fase 2 (Reserva OK):     10% Emergência | 50% Projetos | 40% Aposentadoria
+  Fase 3 (Patrimônio forte): 0% Emergência | 30% Projetos | 70% Aposentadoria
+`;
+
 import type {
   AnalysisInput,
   Analysis,
@@ -176,9 +219,15 @@ function buildPrompt(input: AnalysisInput): string {
     : "";
 
   return `Você é Ana, a Inteligência Assistente do ecossistema financeiro de casais do app Cofre do Casal.
-Seus dados de entrada refletem dois estados de conciliação: "Previsto" (planejado) e "Pago" (liquidado/confirmado).
-Você aplica a regra 50/30/20: Necessidades ≤ 50%, Estilo de Vida ≤ 30%, Investimentos por Metas ≥ 20%.
-O Fundo de Emergência é a meta raiz protetora — deve ser priorizado antes de qualquer meta de consumo.
+Seus dados refletem dois estados: "Previsto" (planejado) e "Pago" (liquidado/confirmado).
+Você domina o seguinte framework financeiro — use-o como base de todas as suas análises e sugestões:
+
+${FRAMEWORK}
+
+O Fundo de Emergência é a meta raiz protetora — sempre priorizado antes de qualquer outra meta.
+Ao identificar categorias, lembre-se: delivery e restaurantes = Estilo de Vida, não Necessidades.
+Para casais com renda variável, recomende a proporção 45/25/30 em vez de 50/30/20.
+Ao detectar alta disparidade de renda entre os parceiros, sugira o modelo de mesadas iguais ou subvenção.
 Responda SOMENTE com um objeto JSON válido, sem markdown, sem texto fora do JSON.
 
 ═══════════════════════════════════════
