@@ -114,9 +114,12 @@ function CurrentMonthChart({ data }: { data: DayBucket[] }) {
         </div>
       </div>
 
-      {/* Bar chart */}
-      <div className="min-h-[160px] w-full relative">
-        <div className="absolute inset-0 flex items-end gap-1">
+      {/* Bar chart — horizontally scrollable so all days (incl. 30/31) are visible */}
+      <div className="w-full overflow-x-auto pb-1">
+        <div
+          className="flex items-end gap-[3px] h-[160px]"
+          style={{ minWidth: monthData.length > 0 ? `${monthData.length * 18}px` : undefined }}
+        >
           {monthData.length === 0 ? (
             <div className="flex-1 flex items-center justify-center text-xs text-muted-foreground">
               Nenhuma transação neste mês
@@ -127,7 +130,7 @@ function CurrentMonthChart({ data }: { data: DayBucket[] }) {
               const eh = (d.expense / max) * 100;
               const hasData = d.income > 0 || d.expense > 0;
               return (
-                <div key={i} className="flex-1 h-full flex flex-col justify-end gap-0.5 group relative">
+                <div key={i} className="flex-1 min-w-[14px] h-full flex flex-col justify-end gap-0.5 group relative">
                   <div className="absolute -top-9 left-1/2 -translate-x-1/2 px-2 py-1 rounded bg-panel ring-1 ring-white/10 text-[10px] mono whitespace-nowrap opacity-0 group-hover:opacity-100 transition pointer-events-none z-10">
                     <div className="text-emerald">+ {formatBRL(d.income)}</div>
                     <div className="text-coral">− {formatBRL(d.expense)}</div>
@@ -140,7 +143,7 @@ function CurrentMonthChart({ data }: { data: DayBucket[] }) {
                     className={`w-full rounded-t-sm transition-all ${eh > 0 ? "bg-coral/20 border-t-2 border-coral hover:bg-coral/35" : "bg-white/5"}`}
                     style={{ height: `${Math.max(eh > 0 ? 3 : 1, eh)}%` }}
                   />
-                  <span className={`text-[8px] text-center mono mt-1 ${hasData ? "text-foreground font-semibold" : "text-muted-foreground"}`}>{d.label}</span>
+                  <span className={`text-[8px] text-center mono mt-0.5 ${hasData ? "text-foreground font-semibold" : "text-muted-foreground"}`}>{d.label}</span>
                 </div>
               );
             })

@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { AppHeader } from "@/components/AppHeader";
 import { useStore, formatBRL } from "@/lib/store";
-import { Search, X, ArrowUpRight, ArrowDownRight, Plus, Trash2, CheckCircle2, Clock, Pencil } from "lucide-react";
+import { Search, X, ArrowUpRight, ArrowDownRight, Plus, Trash2, CheckCircle2, Clock, Pencil, AlertTriangle } from "lucide-react";
 import type { Transaction, TxStatus, Category, CategoryGroup } from "@/lib/mock-data";
 
 export const Route = createFileRoute("/_app/transactions")({
@@ -10,7 +10,7 @@ export const Route = createFileRoute("/_app/transactions")({
 });
 
 function TransactionsPage() {
-  const { state, addTransaction, deleteTransaction, addCategory, updateCategory, updateTransactionStatus } = useStore();
+  const { state, addTransaction, deleteTransaction, addCategory, updateCategory, deleteCategory, updateTransactionStatus } = useStore();
   const [view, setView] = useState<"unified" | "individual">("unified");
   const [query, setQuery] = useState("");
   const [showCat, setShowCat] = useState(false);
@@ -151,14 +151,17 @@ function TransactionsPage() {
         transactions={state.transactions}
         onAdd={() => setShowCat(true)}
         onEdit={(c) => setEditCat(c)}
+        onDelete={deleteCategory}
       />
 
       {showCat && <AddCategoryModal onClose={() => setShowCat(false)} onSave={addCategory} />}
       {editCat && (
         <EditCategoryModal
           category={editCat}
+          transactions={state.transactions}
           onClose={() => setEditCat(null)}
           onSave={async (changes) => { await updateCategory(editCat.id, changes); setEditCat(null); }}
+          onDelete={async () => { const ok = await deleteCategory(editCat.id); if (ok) setEditCat(null); return ok; }}
         />
       )}
 
@@ -481,12 +484,17 @@ function CategoriesSection({
   transactions,
   onAdd,
   onEdit,
+  onDelete,
 }: {
   categories: Category[];
   transactions: Transaction[];
   onAdd: () => void;
   onEdit: (c: Category) => void;
+  onDelete: (id: string) => Promise<boolean>;
 }) {
+  const [confirmDeleteCat, setConfirmDeleteCat] = useState<Category | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
   const grouped = useMemo(() => {
     return CATEGORY_GROUPS.map((g) => {
       let cats: Category[];
@@ -533,14 +541,21 @@ function CategoriesSection({
                           </span>
                         )}
                       </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <span className="mono text-muted-foreground">{formatBRL(total)}</span>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <span className="mono text-muted-foreground mr-1">{formatBRL(total)}</span>
                         <button
                           onClick={() => onEdit(c)}
                           className="size-6 rounded-md grid place-items-center text-muted-foreground hover:text-primary hover:bg-primary/10 transition-all opacity-0 group-hover:opacity-100"
                           title="Editar categoria"
                         >
                           <Pencil className="size-3" />
+                        </button>
+                        <button
+                          onClick={() => { setDeleteError(null); setConfirmDeleteCat(c); }}
+                          className="size-6 rounded-md grid place-items-center text-muted-foreground hover:text-coral hover:bg-coral/10 transition-all opacity-0 group-hover:opacity-100"
+                          title="Excluir categoria"
+                        >
+                          <Trash2 className="size-3" />
                         </button>
                       </div>
                     </div>
@@ -558,6 +573,58 @@ function CategoriesSection({
           <Plus className="size-3" /> Nova categoria
         </button>
       </div>
+
+      {confirmDeleteCat && (
+        <Sheet onClose={() => setConfirmDeleteCat(null)} title="Excluir categoria">
+          <div className="space-y-4">
+            <div className="flex items-start gap-3 p-3 bg-amber/10 ring-1 ring-amber/20 rounded-xl">
+              <AlertTriangle className="size-4 text-amber shrink-0 mt-0.5" />
+              <p className="text-sm text-muted-foreground">
+                Deseja excluir <span className="text-foreground font-medium">"{confirmDeleteCat.name}"</span>?
+                {transactions.some((t) => t.categoryId === confirmDeleteCat.id) && (
+                  <span className="block mt-1 text-[11px] text-coral font-medium">
+                    Esta categoria possui transações vinculadas e não pode ser excluída.
+                  </span>
+                )}
+              </p>
+            </div>
+            {deleteError && (
+              <p className="text-[11px] text-coral p-2.5 bg-coral/10 ring-1 ring-coral/20 rounded-lg">{deleteError}</p>
+            )}
+            {!transactions.some((t) => t.categoryId === confirmDeleteCat.id) && (
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setConfirmDeleteCat(null)}
+                  className="flex-1 py-2.5 rounded-xl text-sm font-medium bg-white/5 ring-1 ring-white/10 text-muted-foreground"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={async () => {
+                    const ok = await onDelete(confirmDeleteCat.id);
+                    if (ok) {
+                      setConfirmDeleteCat(null);
+                    } else {
+                      setDeleteError("Não foi possível excluir. Verifique se há transações vinculadas.");
+                    }
+                  }}
+                  className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-coral/20 text-coral ring-1 ring-coral/30"
+                >
+                  Excluir
+                </button>
+              </div>
+            )}
+            {transactions.some((t) => t.categoryId === confirmDeleteCat.id) && (
+              <button
+                onClick={() => setConfirmDeleteCat(null)}
+                className="w-full py-2.5 rounded-xl text-sm font-medium bg-white/5 ring-1 ring-white/10 text-muted-foreground"
+              >
+                Fechar
+              </button>
+            )}
+          </div>
+        </Sheet>
+      )}
     </div>
   );
 }
@@ -566,18 +633,25 @@ function CategoriesSection({
 
 function EditCategoryModal({
   category,
+  transactions,
   onClose,
   onSave,
+  onDelete,
 }: {
   category: Category;
+  transactions: Transaction[];
   onClose: () => void;
   onSave: (changes: Partial<Omit<Category, "id">>) => Promise<void>;
+  onDelete: () => Promise<boolean>;
 }) {
   const [name, setName] = useState(category.name);
   const [color, setColor] = useState(category.color);
   const [group, setGroup] = useState<CategoryGroup | "">(category.group ?? "");
   const [budget, setBudget] = useState(category.budget ? String(category.budget) : "");
   const [saving, setSaving] = useState(false);
+  const [confirmDel, setConfirmDel] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const inUse = transactions.some((t) => t.categoryId === category.id);
 
   return (
     <Sheet onClose={onClose} title="Editar Categoria">
@@ -647,6 +721,53 @@ function EditCategoryModal({
           {saving && <span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
           {saving ? "Salvando…" : "Salvar alterações"}
         </button>
+
+        {/* Delete section */}
+        {!confirmDel ? (
+          <button
+            type="button"
+            onClick={() => setConfirmDel(true)}
+            className="w-full py-2 text-[11px] text-muted-foreground hover:text-coral transition-colors flex items-center justify-center gap-1.5"
+          >
+            <Trash2 className="size-3" /> Excluir categoria
+          </button>
+        ) : (
+          <div className="space-y-3 p-3 bg-coral/10 ring-1 ring-coral/20 rounded-xl">
+            {inUse ? (
+              <p className="text-[11px] text-coral text-center">
+                Esta categoria possui transações vinculadas e não pode ser excluída.
+              </p>
+            ) : (
+              <p className="text-[11px] text-muted-foreground text-center">
+                Confirmar exclusão de <span className="text-foreground font-medium">"{category.name}"</span>?
+              </p>
+            )}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmDel(false)}
+                className="flex-1 py-2 rounded-lg text-xs bg-white/5 text-muted-foreground"
+              >
+                Cancelar
+              </button>
+              {!inUse && (
+                <button
+                  type="button"
+                  disabled={deleting}
+                  onClick={async () => {
+                    setDeleting(true);
+                    await onDelete();
+                    setDeleting(false);
+                  }}
+                  className="flex-1 py-2 rounded-lg text-xs font-semibold bg-coral/20 text-coral ring-1 ring-coral/30 disabled:opacity-60 flex items-center justify-center gap-1"
+                >
+                  {deleting && <span className="size-3 border-2 border-coral/30 border-t-coral rounded-full animate-spin" />}
+                  {deleting ? "Excluindo…" : "Excluir"}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
       </form>
     </Sheet>
   );

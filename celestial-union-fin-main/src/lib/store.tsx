@@ -145,6 +145,8 @@ interface StoreApi {
   addCategory: (c: Omit<Category, "id">) => Promise<string | null>;
   /** Atualiza nome, cor, grupo e orçamento de uma categoria existente */
   updateCategory: (id: string, changes: Partial<Omit<Category, "id">>) => Promise<void>;
+  /** Remove uma categoria. Retorna false se há transações vinculadas. */
+  deleteCategory: (id: string) => Promise<boolean>;
   addAccount: (a: Omit<Account, "id">) => void;
   addInvestment: (inv: Omit<Investment, "id" | "moves">) => void;
   deleteInvestment: (id: string) => Promise<void>;
@@ -640,6 +642,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
         await refetchCategories(state.coupleId);
         return (data?.id as string) ?? null;
+      },
+
+      deleteCategory: async (id: string): Promise<boolean> => {
+        if (!state.coupleId) return false;
+        const inUse = state.transactions.some((t) => t.categoryId === id);
+        if (inUse) return false;
+        const { error } = await supabase.from("categories").delete().eq("id", id);
+        if (error) {
+          console.error("[Store] deleteCategory:", error);
+          return false;
+        }
+        await refetchCategories(state.coupleId);
+        return true;
       },
 
       updateCategory: async (id, changes) => {
