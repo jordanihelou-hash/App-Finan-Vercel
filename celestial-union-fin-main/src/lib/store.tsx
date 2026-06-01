@@ -256,6 +256,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     // Guard: Supabase Auth só funciona no browser
     if (typeof window === "undefined") return;
 
+    // Fast-path: se não há nenhuma chave do Supabase em localStorage E não há
+    // tokens OAuth no URL, o usuário definitivamente não tem sessão — redireciona
+    // imediatamente sem esperar o cold start do SDK.
+    const hasOAuthInUrl =
+      window.location.hash.includes("access_token=") ||
+      window.location.hash.includes("refresh_token=") ||
+      window.location.search.includes("code=");
+    const hasStoredSession = Object.keys(localStorage).some((k) =>
+      k.startsWith("sb-") && k.endsWith("-auth-token")
+    );
+    if (!hasOAuthInUrl && !hasStoredSession) {
+      setState((s) => ({ ...s, authState: "unauthenticated" }));
+      return;
+    }
+
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
