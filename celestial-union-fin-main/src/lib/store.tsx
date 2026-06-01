@@ -256,44 +256,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     // Guard: Supabase Auth só funciona no browser
     if (typeof window === "undefined") return;
 
-    // Fast-path: se não há nenhuma chave do Supabase em localStorage E não há
-    // tokens OAuth no URL, o usuário definitivamente não tem sessão — redireciona
-    // imediatamente sem esperar o cold start do SDK.
-    const hasOAuthInUrl =
-      window.location.hash.includes("access_token=") ||
-      window.location.hash.includes("refresh_token=") ||
-      window.location.search.includes("code=");
-    const hasStoredSession = Object.keys(localStorage).some((k) =>
-      k.startsWith("sb-") && k.endsWith("-auth-token")
-    );
-    if (!hasOAuthInUrl && !hasStoredSession) {
-      setState((s) => ({ ...s, authState: "unauthenticated" }));
-      return;
-    }
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
-      // TOKEN_REFRESHED: pula se já carregamos os dados (evita reload desnecessário)
-      // mas deixa passar se ainda não carregamos (token refresh pode ser o 1º evento)
-      if (event === "TOKEN_REFRESHED" && dataLoadedRef.current) return;
-
-      if (!session) {
-        // Se há tokens OAuth no URL (retorno do Google), o SDK ainda está
-        // processando o code exchange — aguarda o SIGNED_IN antes de decidir.
-        if (typeof window !== "undefined") {
-          const h = window.location.hash;
-          const q = window.location.search;
-          if (h.includes("access_token=") || h.includes("refresh_token=") || q.includes("code=")) {
-            return; // Aguarda o SIGNED_IN
-          }
-        }
-
-        clearSubscriptions();
-        setState({ ...initialState, authState: "unauthenticated" });
-        return;
-      }
-
+    // ── Lógica de carga de dados ────────────────────────────────────────────
+    // Extraída para poder ser chamada tanto pelo getSession() inicial
+    // quanto pelo onAuthStateChange para eventos futuros.
+    async function loadFromSession(session: import("@supabase/supabase-js").Session) {
       setState((s) => ({
         ...s,
         authState: "loading",
@@ -498,9 +464,52 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           error: message,
         }));
       }
+    }
+
+    // ── Inicialização ────────────────────────────────────────────────────────
+    // 1. getSession() lê do localStorage — sem rede, imediato.
+    //    Se há sessão válida, carrega os dados agora, sem esperar cold start.
+    // 2. onAuthStateChange cuida apenas de eventos futuros:
+    //    SIGNED_OUT (logout), SIGNED_IN (novo login), TOKEN_REFRESHED.
+    let isMounted = true;
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!isMounted) return;
+      if (session) {
+        loadFromSession(session);
+      } else {
+        // Sem sessão em localStorage — verifica se há OAuth no URL
+        const h = window.location.hash;
+        const q = window.location.search;
+        if (h.includes("access_token=") || h.includes("refresh_token=") || q.includes("code=")) {
+          // Deixa o onAuthStateChange abaixo processar o SIGNED_IN
+        } else {
+          setState((s) => ({ ...s, authState: "unauthenticated" }));
+        }
+      }
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!isMounted) return;
+
+      if (event === "SIGNED_OUT") {
+        clearSubscriptions();
+        dataLoadedRef.current = false;
+        setState({ ...initialState, authState: "unauthenticated" });
+        return;
+      }
+
+      // SIGNED_IN: novo login (ex: retorno do OAuth callback)
+      // TOKEN_REFRESHED: token renovado — recarrega apenas se ainda não tinha dados
+      if ((event === "SIGNED_IN" || (event === "TOKEN_REFRESHED" && !dataLoadedRef.current)) && session) {
+        loadFromSession(session);
+      }
     });
 
     return () => {
+      isMounted = false;
       subscription.unsubscribe();
       clearSubscriptions();
     };
@@ -518,7 +527,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
         return s;
       });
-    }, 90_000);
+    }, 60_000);
     return () => clearTimeout(t);
   }, []);
 
