@@ -49,22 +49,24 @@ async function parseMessageWithGemini(
     .map((c) => `- ${c.name} (${c.type === "income" ? "receita" : "despesa"})`)
     .join("\n");
 
-  const prompt = `Você é um assistente financeiro. Analise a mensagem abaixo e extraia as informações da transação.
+  const prompt = `Voce e a ANA, assistente financeira pessoal do Cofre do Casal. Voce e educada, inteligente, muito precisa e extremamente detalhista com valores financeiros — sempre registra centavos corretamente e nunca arredonda sem o usuario pedir.
+
+Analise a mensagem do usuario e extraia a transacao financeira.
 
 Mensagem: "${message}"
 
-Categorias disponíveis:
+Categorias disponiveis:
 ${catList}
 
-Responda APENAS com um JSON válido neste formato exato (sem markdown, sem explicação):
+Responda APENAS com JSON valido neste formato exato (sem markdown, sem explicacao):
 {
   "type": "expense" ou "income",
-  "amount": número (apenas números, sem R$),
-  "description": "descrição curta",
-  "category": "nome exato de uma das categorias listadas acima"
+  "amount": numero com ate 2 casas decimais (ex: 45.90),
+  "description": "descricao clara e objetiva da transacao",
+  "category": "nome exato de uma das categorias da lista acima"
 }
 
-Se a mensagem não for sobre uma transação financeira, responda apenas: null`;
+Se a mensagem nao for sobre uma transacao financeira, responda apenas: null`;
 
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`,
@@ -150,7 +152,7 @@ Deno.serve(async (req) => {
   if (!profiles || profiles.length === 0) {
     await sendWhatsAppMessage(
       phoneRaw,
-      "❌ Número não cadastrado no Cofre do Casal.\n\nAcesse o app e vá em *Perfil → Meu número de WhatsApp* para vincular este número."
+      "Ola! Sou a ANA, assistente financeira do Cofre do Casal.\n\nEste numero ainda nao esta vinculado a nenhuma conta. Acesse o app e va em Perfil para cadastrar seu WhatsApp."
     );
     return new Response("OK", { status: 200 });
   }
@@ -158,7 +160,7 @@ Deno.serve(async (req) => {
   const user = profiles[0] as { id: string; couple_id: string; name: string };
 
   if (!user.couple_id) {
-    await sendWhatsAppMessage(phoneRaw, "❌ Sua conta ainda não está vinculada a um casal no app.");
+    await sendWhatsAppMessage(phoneRaw, "Ola, " + user.name + "! Sou a ANA. Sua conta ainda nao esta vinculada a um casal. Acesse o app para concluir a configuracao.");
     return new Response("OK", { status: 200 });
   }
 
@@ -169,7 +171,7 @@ Deno.serve(async (req) => {
     .eq("couple_id", user.couple_id);
 
   if (!categories || categories.length === 0) {
-    await sendWhatsAppMessage(phoneRaw, "❌ Nenhuma categoria encontrada. Acesse o app para criar categorias.");
+    await sendWhatsAppMessage(phoneRaw, "Ola, " + user.name + "! Sou a ANA. Nao encontrei categorias cadastradas. Acesse o app e crie suas categorias primeiro.");
     return new Response("OK", { status: 200 });
   }
 
@@ -179,7 +181,7 @@ Deno.serve(async (req) => {
   if (!parsed) {
     await sendWhatsAppMessage(
       phoneRaw,
-      `🤔 Não entendi como uma transação financeira.\n\nExemplos:\n• "gastei 50 no mercado"\n• "recebi salário 3000"\n• "paguei 120 de luz"`
+      "Ola, " + user.name + "! Sou a ANA, sua assistente financeira. Nao identifiquei uma transacao na sua mensagem.\n\nVoce pode me enviar assim:\n- gastei 45,90 no mercado\n- recebi salario de 3.200,00\n- paguei 189,50 de conta de luz\n\nEstou aqui para ajudar com todos os detalhes!"
     );
     return new Response("OK", { status: 200 });
   }
@@ -190,7 +192,7 @@ Deno.serve(async (req) => {
   ) ?? categories.find((c) => c.type === parsed.type);
 
   if (!category) {
-    await sendWhatsAppMessage(phoneRaw, `❌ Categoria "${parsed.category}" não encontrada. Verifique no app.`);
+    await sendWhatsAppMessage(phoneRaw, "Ola, " + user.name + "! Sou a ANA. Nao encontrei a categoria \"" + parsed.category + "\" no seu cadastro. Verifique as categorias disponiveis no app.");
     return new Response("OK", { status: 200 });
   }
 
@@ -218,17 +220,24 @@ Deno.serve(async (req) => {
   });
 
   if (error) {
-    console.error("Erro ao inserir transação:", error);
-    await sendWhatsAppMessage(phoneRaw, "❌ Erro ao salvar. Tente novamente.");
+    console.error("Erro ao inserir transacao:", error);
+    await sendWhatsAppMessage(phoneRaw, "Desculpe, " + user.name + "! Tive um problema ao registrar sua transacao. Por favor, tente novamente em instantes.");
     return new Response("OK", { status: 200 });
   }
 
-  // Resposta de confirmação
-  const emoji = parsed.type === "income" ? "💰" : "💸";
+  // Resposta de confirmação com personalidade da ANA
+  const tipo = parsed.type === "income" ? "Receita" : "Despesa";
   const valor = parsed.amount.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  const dataHoje = new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
   await sendWhatsAppMessage(
     phoneRaw,
-    `${emoji} *${parsed.description}*\n${valor} em *${category.name}*\n\n✅ Lançado no Cofre do Casal!`
+    "Lancamento registrado com sucesso, " + user.name + "!\n\n" +
+    "Tipo: " + tipo + "\n" +
+    "Descricao: " + parsed.description + "\n" +
+    "Valor: " + valor + "\n" +
+    "Categoria: " + category.name + "\n" +
+    "Data: " + dataHoje + "\n\n" +
+    "Tudo anotado no Cofre do Casal! Se precisar corrigir algo, acesse o app. Estou sempre aqui!"
   );
 
   return new Response("OK", { status: 200 });
