@@ -69,7 +69,7 @@ Responda APENAS com JSON valido neste formato exato (sem markdown, sem explicaca
 Se a mensagem nao for sobre uma transacao financeira, responda apenas: null`;
 
   const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -111,17 +111,21 @@ Deno.serve(async (req) => {
 
   // Filtra apenas mensagens de texto recebidas (não enviadas pelo bot)
   const event = body.event as string;
+  console.log("EVENT:", event, "BODY_KEYS:", Object.keys(body).join(","));
   if (event !== "messages.upsert") {
+    console.log("Ignorando evento:", event);
     return new Response("OK", { status: 200 });
   }
 
   const data = body.data as Record<string, unknown>;
   const key = data?.key as Record<string, unknown>;
   const fromMe = key?.fromMe as boolean;
+  console.log("fromMe:", fromMe, "messageType:", (data?.messageType as string));
   if (fromMe) return new Response("OK", { status: 200 }); // ignora msgs enviadas
 
   const messageType = (data?.messageType as string) ?? "";
   if (messageType !== "conversation" && messageType !== "extendedTextMessage") {
+    console.log("Ignorando messageType:", messageType);
     return new Response("OK", { status: 200 }); // ignora áudio, imagem, etc.
   }
 
@@ -134,20 +138,40 @@ Deno.serve(async (req) => {
     (messageContent?.extendedTextMessage as Record<string, unknown>)?.text as string ??
     "";
 
-  if (!phoneRaw || !text) return new Response("OK", { status: 200 });
+  console.log("phoneRaw:", phoneRaw, "text:", text);
+  if (!phoneRaw || !text) {
+    console.log("Saindo: phoneRaw ou text vazio");
+    return new Response("OK", { status: 200 });
+  }
 
-  // Normaliza número: remove código do país se for Brasil (55) e adiciona de volta
-  // para buscar no formato que o usuário cadastrou (ex: 11999990001)
-  const phoneVariants = [
-    phoneRaw,                                    // 5511999990001
-    phoneRaw.startsWith("55") ? phoneRaw.slice(2) : phoneRaw, // 11999990001
-  ];
+  // Normaliza número para Brasil: remove DDI 55, e tenta variantes com e sem o 9
+  const withoutCountry = phoneRaw.startsWith("55") ? phoneRaw.slice(2) : phoneRaw;
+  // Se o número local tem 10 dígitos (DDD + 8 dígitos sem o 9), adiciona o 9 após o DDD
+  const withNine = withoutCountry.length === 10
+    ? withoutCountry.slice(0, 2) + "9" + withoutCountry.slice(2)
+    : withoutCountry;
+  const withoutNine = withoutCountry.length === 11 && withoutCountry[2] === "9"
+    ? withoutCountry.slice(0, 2) + withoutCountry.slice(3)
+    : withoutCountry;
+
+  const phoneVariants = [...new Set([
+    phoneRaw,         // 556781595518
+    withoutCountry,   // 6781595518
+    withNine,         // 67981595518
+    withoutNine,      // 6781595518
+  ])];
+
+  console.log("phoneVariants:", phoneVariants.join(","));
+
+  console.log("Buscando usuario com phoneVariants:", phoneVariants.join(","));
 
   // Busca usuário pelo número cadastrado
-  const { data: profiles } = await supabase
+  const { data: profiles, error: profileError } = await supabase
     .from("user_profiles")
     .select("id, couple_id, name")
     .or(phoneVariants.map((p) => `phone.eq.${p}`).join(","));
+
+  console.log("Profiles encontrados:", profiles?.length ?? 0, profileError ? "ERRO:" + profileError.message : "");
 
   if (!profiles || profiles.length === 0) {
     await sendWhatsAppMessage(
@@ -158,6 +182,7 @@ Deno.serve(async (req) => {
   }
 
   const user = profiles[0] as { id: string; couple_id: string; name: string };
+  console.log("Usuario:", user.name, "couple_id:", user.couple_id);
 
   if (!user.couple_id) {
     await sendWhatsAppMessage(phoneRaw, "Ola, " + user.name + "! Sou a ANA. Sua conta ainda nao esta vinculada a um casal. Acesse o app para concluir a configuracao.");
@@ -165,10 +190,12 @@ Deno.serve(async (req) => {
   }
 
   // Busca categorias do casal
-  const { data: categories } = await supabase
+  const { data: categories, error: catError } = await supabase
     .from("categories")
     .select("id, name, type")
     .eq("couple_id", user.couple_id);
+
+  console.log("Categorias encontradas:", categories?.length ?? 0, catError ? "ERRO:" + catError.message : "");
 
   if (!categories || categories.length === 0) {
     await sendWhatsAppMessage(phoneRaw, "Ola, " + user.name + "! Sou a ANA. Nao encontrei categorias cadastradas. Acesse o app e crie suas categorias primeiro.");
@@ -176,7 +203,9 @@ Deno.serve(async (req) => {
   }
 
   // Interpreta a mensagem com Gemini
+  console.log("Chamando Gemini com texto:", text);
   const parsed = await parseMessageWithGemini(text, categories);
+  console.log("Gemini retornou:", JSON.stringify(parsed));
 
   if (!parsed) {
     await sendWhatsAppMessage(
