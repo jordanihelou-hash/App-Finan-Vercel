@@ -7,7 +7,7 @@
  */
 
 import { useState } from "react";
-import { X, User, Loader2, Check } from "lucide-react";
+import { X, User, Loader2, Check, MessageCircle } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
 interface Props {
@@ -21,6 +21,7 @@ export function UserProfileModal({ userId, currentName, onClose, onSaved }: Prop
   const [name, setName] = useState(currentName);
   const [phone, setPhone] = useState(() => localStorage.getItem(`profile_phone_${userId}`) ?? "");
   const [birthDate, setBirthDate] = useState(() => localStorage.getItem(`profile_birth_${userId}`) ?? "");
+  const [phoneStatus, setPhoneStatus] = useState<"idle" | "saving" | "saved">("idle");
   const [loading, setLoading] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,15 +39,22 @@ export function UserProfileModal({ userId, currentName, onClose, onSaved }: Prop
       const trimmedName = name.trim();
       const initial = trimmedName[0].toUpperCase();
 
+      // Normaliza número: mantém só dígitos
+      const phoneDigits = phone.replace(/\D/g, "");
+
       const { error: updateError } = await supabase
         .from("user_profiles")
-        .update({ name: trimmedName, initial })
+        .update({
+          name: trimmedName,
+          initial,
+          ...(phoneDigits ? { phone: phoneDigits } : {}),
+        })
         .eq("id", userId);
 
       if (updateError) throw updateError;
 
-      // Armazena campos extras localmente (adicione colunas no Supabase para persistência total)
-      if (phone.trim()) localStorage.setItem(`profile_phone_${userId}`, phone.trim());
+      // Cache local para campos extras
+      if (phoneDigits) localStorage.setItem(`profile_phone_${userId}`, phone.trim());
       if (birthDate) localStorage.setItem(`profile_birth_${userId}`, birthDate);
 
       // Marca perfil como completo
@@ -116,16 +124,27 @@ export function UserProfileModal({ userId, currentName, onClose, onSaved }: Prop
 
           <label className="block">
             <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1.5 block">
-              Telefone
+              WhatsApp
             </span>
-            <input
-              className="w-full bg-[oklch(0.17_0.05_290)] ring-1 ring-white/10 rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-primary/50 transition-all"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="(00) 00000-0000"
-              type="tel"
-              inputMode="tel"
-            />
+            <div className="relative">
+              <MessageCircle className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-emerald" />
+              <input
+                className="w-full bg-[oklch(0.17_0.05_290)] ring-1 ring-white/10 rounded-lg pl-9 pr-3 py-2.5 text-sm outline-none focus:ring-primary/50 transition-all"
+                value={phone}
+                onChange={(e) => { setPhone(e.target.value); setPhoneStatus("idle"); }}
+                placeholder="(00) 00000-0000"
+                type="tel"
+                inputMode="tel"
+              />
+            </div>
+            <p className="text-[10px] text-muted-foreground mt-1.5 pl-1">
+              Vincule seu número para lançar despesas enviando mensagens de WhatsApp.
+            </p>
+            {phoneStatus === "saved" && (
+              <p className="text-[10px] text-emerald mt-1 pl-1 flex items-center gap-1">
+                <Check className="size-3" /> Número vinculado ao WhatsApp
+              </p>
+            )}
           </label>
 
           <label className="block">
